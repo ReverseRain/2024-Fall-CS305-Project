@@ -1,5 +1,8 @@
 import asyncio
 from util import *
+import config
+import json
+import uuid
 
 
 class ConferenceServer:
@@ -49,10 +52,46 @@ class MainServer:
         self.conference_conns = None
         self.conference_servers = {}  # self.conference_servers[conference_id] = ConferenceManager
 
-    def handle_creat_conference(self,):
+    async def handle_creat_conference(self, reader, writer):
         """
-        create conference: create and start the corresponding ConferenceServer, and reply necessary info to client
+        Create conference: create and start the corresponding ConferenceServer,
+        and reply necessary info to client.
         """
+        try:
+            
+            # 生成唯一的会议 ID
+            conference_id = str(uuid.uuid4())
+            print(f"[Info]: Creating a new conference with ID: {conference_id}")
+
+            # 初始化会议服务器
+           # new_conference_server = ConferenceServer()
+           # new_conference_server.conference_id = conference_id
+            #self.conference_servers[conference_id] = new_conference_server
+
+            # 构造响应数据
+            response_data = {
+                "status": "success",
+                "conference_info": {
+                    "conference_id": conference_id,
+                   # "server_ip": self.server_ip,
+                   # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
+                }
+            }
+            writer.write(json.dumps(response_data).encode('utf-8'))
+            await writer.drain()
+
+        except Exception as e:
+            # 错误响应
+            error_response = {
+                "status": "error",
+                "message": str(e),
+            }
+            writer.write(json.dumps(error_response).encode('utf-8'))
+            await writer.drain()
+            print(f"[Error]: Failed to create conference. Error: {e}")
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
     def handle_join_conference(self, conference_id):
         """
@@ -73,17 +112,52 @@ class MainServer:
 
     async def request_handler(self, reader, writer):
         """
-        running task: handle out-meeting (or also in-meeting) requests from clients
+        Handle incoming requests from clients and dispatch to the appropriate handlers.
         """
-        pass
+        addr = writer.get_extra_info('peername')
+        print(f"[Server]: New connection from {addr}")
+
+        try:
+            while True:
+                print('abcde')
+                # Read the request type (assumes the client sends request type first)
+                data = await reader.read(1024)
+                if not data:
+                    break  # Connection closed by the client
+
+                request = data.decode().strip()
+                print(f"[Server]: Request received: {request}")
+
+                # Dispatch the request
+                if request.startswith("create_conference"):
+                    await self.handle_creat_conference(reader, writer)
+                elif request.startswith("join_conference"):
+                    _, conference_id = request.split()
+                    await self.handle_join_conference(int(conference_id), writer)
+                else:
+                    response = "Unknown request"
+                    writer.write(response.encode())
+                    await writer.drain()
+                    print(f"[Server]: Sent response: {response}")
+        except Exception as e:
+            print(f"[Server]: Error: {e}")
+        finally:
+            print(f"[Server]: Closing connection with {addr}")
+            writer.close()
+            await writer.wait_closed()
 
     def start(self):
-        """
-        start MainServer
-        """
-        pass
+        async def start_server():
+            print(f"[Server]: Starting server at {self.server_ip}:{self.server_port}")
+            self.main_server = await asyncio.start_server(self.request_handler, self.server_ip, self.server_port)
+
+            # Serve the server until it is stopped
+            async with self.main_server:
+                await self.main_server.serve_forever()
+                    
+        asyncio.run(start_server())
 
 
 if __name__ == '__main__':
-    server = MainServer(SERVER_IP, MAIN_SERVER_PORT)
+    server = MainServer(config.SERVER_IP, config.MAIN_SERVER_PORT)
     server.start()

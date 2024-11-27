@@ -1,11 +1,13 @@
 from util import *
-
+import asyncio
+import json
+from config import *
 
 class ConferenceClient:
-    def __init__(self,):
+    def __init__(self,server_addr):
         # sync client
         self.is_working = True
-        self.server_addr = None  # server addr
+        self.server_addr =server_addr   # server addr
         self.on_meeting = False  # status
         self.conns = None  # you may need to maintain multiple conns for a single conference
         self.support_data_types = []  # for some types of data
@@ -15,11 +17,35 @@ class ConferenceClient:
 
         self.recv_data = None  # you may need to save received streamd data from other clients in conference
 
-    def create_conference(self):
-        """
-        create a conference: send create-conference request to server and obtain necessary data to
-        """
-        pass
+    async def create_conference(self):
+        try:
+            # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info("[Info]: Connected to the server for creating a conference.")
+            
+            # 构造创建会议的请求数据
+            request_data = "create_conference"
+    
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
+
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+            
+            if response_data.get("status") == "success":
+                self.conference_info = response_data["conference_info"]
+                self.on_meeting = True
+                self.conference_id=self.conference_info['conference_id']
+                self.show_info(f"[Success]: Conference created with ID: {self.conference_id}")
+            else:
+                self.show_info(f"[Error]: Failed to create conference. Reason: {response_data.get('message')}")
+
+            # 关闭连接
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+           self.show_info(f"[Error]: Unable to create conference. Error: {e}")
 
     def join_conference(self, conference_id):
         """
@@ -75,6 +101,10 @@ class ConferenceClient:
         close all conns to servers or other clients and cancel the running tasks
         pay attention to the exception handling
         '''
+    
+    def show_info(self,info):
+        print(info)
+
 
     def start(self):
         """
@@ -93,7 +123,7 @@ class ConferenceClient:
                 if cmd_input in ('?', '？'):
                     print(HELP)
                 elif cmd_input == 'create':
-                    self.create_conference()
+                    asyncio.run(self.create_conference())
                 elif cmd_input == 'quit':
                     self.quit_conference()
                 elif cmd_input == 'cancel':
@@ -121,6 +151,6 @@ class ConferenceClient:
 
 
 if __name__ == '__main__':
-    client1 = ConferenceClient()
+    client1 = ConferenceClient((SERVER_IP,MAIN_SERVER_PORT))
     client1.start()
 
