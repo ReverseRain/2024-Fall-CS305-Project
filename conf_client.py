@@ -1,11 +1,13 @@
 from util import *
-
+import asyncio
+import json
+from config import *
 
 class ConferenceClient:
-    def __init__(self,):
+    def __init__(self,server_addr):
         # sync client
         self.is_working = True
-        self.server_addr = None  # server addr
+        self.server_addr =server_addr   # server addr
         self.on_meeting = False  # status
         self.conns = None  # you may need to maintain multiple conns for a single conference
         self.support_data_types = []  # for some types of data
@@ -15,11 +17,35 @@ class ConferenceClient:
 
         self.recv_data = None  # you may need to save received streamd data from other clients in conference
 
-    def create_conference(self):
-        """
-        create a conference: send create-conference request to server and obtain necessary data to
-        """
-        pass
+    async def create_conference(self):
+        try:
+            # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info("[Info]: Connected to the server for creating a conference.")
+            
+            # 构造创建会议的请求数据
+            request_data = "create_conference"
+    
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
+
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+            
+            if response_data.get("status") == "success":
+                self.conference_info = response_data["conference_info"]
+                self.on_meeting = True
+                self.conference_id=self.conference_info['conference_id']
+                self.show_info(f"[Success]: Conference created with ID: {self.conference_id}")
+            else:
+                self.show_info(f"[Error]: Failed to create conference. Reason: {response_data.get('message')}")
+
+            # 关闭连接
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+           self.show_info(f"[Error]: Unable to create conference. Error: {e}")
 
     def join_conference(self, conference_id):
         """
@@ -27,17 +53,64 @@ class ConferenceClient:
         """
         pass
 
-    def quit_conference(self):
+    async def quit_conference(self,conference_id):
         """
         quit your on-going conference
         """
-        pass
+        try:
+        # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info("[Info]: Connected to the server to quit the conference.")
+            
+            request_data = "quit_conference "+str(conference_id)
+            
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
 
-    def cancel_conference(self):
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+            
+            if response_data.get("status") == "success":
+                self.on_meeting = False
+                self.show_info("[Success]: Successfully quit the conference.")
+            else:
+                self.show_info(f"[Error]: Failed to quit conference. Reason: {response_data.get('message')}")
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            self.show_info(f"[Error]: Unable to quit conference. Error: {e}")
+
+
+    async def cancel_conference(self):
         """
         cancel your on-going conference (when you are the conference manager): ask server to close all clients
         """
-        pass
+        try:
+        # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info("[Info]: Connected to the server to cancel the conference.")
+            
+            request_data = "cancel_conference "+str(self.conference_id)
+        
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
+
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+            
+            if response_data.get("status") == "success":
+                self.on_meeting = False
+                self.show_info("[Success]: Successfully cancelled the conference.")
+            else:
+                self.show_info(f"[Error]: Failed to cancel conference. Reason: {response_data.get('message')}")
+
+            # 关闭连接
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            self.show_info(f"[Error]: Unable to cancel conference. Error: {e}")
 
     def keep_share(self, data_type, send_conn, capture_function, compress=None, fps_or_frequency=30):
         '''
@@ -75,6 +148,10 @@ class ConferenceClient:
         close all conns to servers or other clients and cancel the running tasks
         pay attention to the exception handling
         '''
+    
+    def show_info(self,info):
+        print(info)
+
 
     def start(self):
         """
@@ -93,11 +170,9 @@ class ConferenceClient:
                 if cmd_input in ('?', '？'):
                     print(HELP)
                 elif cmd_input == 'create':
-                    self.create_conference()
-                elif cmd_input == 'quit':
-                    self.quit_conference()
+                    asyncio.run(self.create_conference())
                 elif cmd_input == 'cancel':
-                    self.cancel_conference()
+                    asyncio.run(self.cancel_conference())
                 else:
                     recognized = False
             elif len(fields) == 2:
@@ -111,6 +186,8 @@ class ConferenceClient:
                     data_type = fields[1]
                     if data_type in self.share_data.keys():
                         self.share_switch(data_type)
+                elif fields[0] == 'quit':
+                    asyncio.run(self.quit_conference(fields[1]))
                 else:
                     recognized = False
             else:
@@ -121,6 +198,5 @@ class ConferenceClient:
 
 
 if __name__ == '__main__':
-    client1 = ConferenceClient()
+    client1 = ConferenceClient((SERVER_IP,MAIN_SERVER_PORT))
     client1.start()
-
