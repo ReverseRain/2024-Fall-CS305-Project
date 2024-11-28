@@ -1,6 +1,6 @@
 import asyncio
 from util import *
-import config
+from config import *
 import json
 import uuid
 
@@ -60,7 +60,7 @@ class MainServer:
         try:
             
             # 生成唯一的会议 ID
-            conference_id = str(uuid.uuid4())
+            conference_id = str(uuid.uuid4().int)
             print(f"[Info]: Creating a new conference with ID: {conference_id}")
 
             # 初始化会议服务器
@@ -134,11 +134,8 @@ class MainServer:
                 elif request.startswith("join_conference"):
                     _, conference_id = request.split()
                     await self.handle_join_conference(int(conference_id), writer)
-                else:
-                    response = "Unknown request"
-                    writer.write(response.encode())
-                    await writer.drain()
-                    print(f"[Server]: Sent response: {response}")
+                
+                    
         except Exception as e:
             print(f"[Server]: Error: {e}")
         finally:
@@ -159,5 +156,5 @@ class MainServer:
 
 
 if __name__ == '__main__':
-    server = MainServer(config.SERVER_IP, config.MAIN_SERVER_PORT)
+    server = MainServer(SERVER_IP, MAIN_SERVER_PORT)
     server.start()
