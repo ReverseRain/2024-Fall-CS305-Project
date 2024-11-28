@@ -12,6 +12,7 @@ class ConferenceClient:
         self.conns = None  # you may need to maintain multiple conns for a single conference
         self.support_data_types = []  # for some types of data
         self.share_data = {}
+        self.conference_id=None
 
         self.conference_info = None  # you may need to save and update some conference_info regularly
 
@@ -47,11 +48,40 @@ class ConferenceClient:
         except Exception as e:
            self.show_info(f"[Error]: Unable to create conference. Error: {e}")
 
-    def join_conference(self, conference_id):
+    async def join_conference(self, conference_id):
         """
-        join a conference: send join-conference request with given conference_id, and obtain necessary data to
+        Join a conference: send join-conference request with given conference_id, and obtain necessary data to
         """
-        pass
+        try:
+            # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info(f"[Info]: Connected to the server to join conference with ID: {conference_id}.")
+            
+            # 构造加入会议的请求数据
+            request_data = f"join_conference {conference_id}"
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
+
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+
+            if response_data.get("status") == "success":
+                # 会议加入成功
+                #self.conference_info = response_data["conference_info"]
+                self.on_meeting = True
+                self.conference_id = conference_id
+                self.show_info(f"[Success]: Successfully joined conference with ID: {self.conference_id}")
+            else:
+                # 会议加入失败
+                self.show_info(f"[Error]: Failed to join conference. Reason: {response_data.get('message')}")
+
+            # 关闭连接
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            self.show_info(f"[Error]: Unable to join conference. Error: {e}")
+
 
     async def quit_conference(self,conference_id):
         """
@@ -179,7 +209,7 @@ class ConferenceClient:
                 if fields[0] == 'join':
                     input_conf_id = fields[1]
                     if input_conf_id.isdigit():
-                        self.join_conference(input_conf_id)
+                        asyncio.run(self.join_conference(input_conf_id))
                     else:
                         print('[Warn]: Input conference ID must be in digital form')
                 elif fields[0] == 'switch':
