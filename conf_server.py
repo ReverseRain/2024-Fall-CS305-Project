@@ -3,6 +3,7 @@ from util import *
 from config import *
 import json
 import uuid
+import random
 
 
 class ConferenceServer:
@@ -50,7 +51,7 @@ class MainServer:
         self.main_server = None
 
         self.conference_conns = None
-        self.conference_servers = {}  # self.conference_servers[conference_id] = ConferenceManager
+        self.conference_servers = {} # self.conference_servers[conference_id] = ConferenceManager
 
     async def handle_creat_conference(self, reader, writer):
         """
@@ -60,13 +61,16 @@ class MainServer:
         try:
             
             # 生成唯一的会议 ID
-            conference_id = str(uuid.uuid4().int)
+
+            conference_id = str(random.randint(10000000, 99999999))
+
             print(f"[Info]: Creating a new conference with ID: {conference_id}")
 
             # 初始化会议服务器
-           # new_conference_server = ConferenceServer()
-           # new_conference_server.conference_id = conference_id
-            #self.conference_servers[conference_id] = new_conference_server
+            new_conference_server = ConferenceServer()
+            new_conference_server.conference_id = conference_id
+            self.conference_servers[conference_id] = new_conference_server
+
 
             # 构造响应数据
             response_data = {
@@ -98,17 +102,73 @@ class MainServer:
         join conference: search corresponding conference_info and ConferenceServer, and reply necessary info to client
         """
 
-    def handle_quit_conference(self):
+    async def handle_quit_conference(self, reader, writer, conference_id):
         """
         quit conference (in-meeting request & or no need to request)
         """
-        pass
+        try:
+            # 检查会议是否存在
+            if conference_id in self.conference_servers:
+                # 构造响应数据
+                response_data = {
+                    "status": "success",
+                    "message": "You have left the conference."
+                }
+                writer.write(json.dumps(response_data).encode('utf-8'))
+                await writer.drain()
+            else:
+                # 会议不存在的错误响应
+                error_response = {
+                    "status": "error",
+                    "message": "Conference not found.",
+                }
+                writer.write(json.dumps(error_response).encode('utf-8'))
+                await writer.drain()
+        except Exception as e:
+            # 错误响应
+            error_response = {
+                "status": "error",
+                "message": str(e),
+            }
+            writer.write(json.dumps(error_response).encode('utf-8'))
+            await writer.drain()
+            print(f"[Error]: Failed to quit conference. Error: {e}")
 
-    def handle_cancel_conference(self):
+    async def handle_cancel_conference(self, reader, writer, conference_id):
         """
         cancel conference (in-meeting request, a ConferenceServer should be closed by the MainServer)
         """
-        pass
+        try:
+            if conference_id in self.conference_servers:
+                conference_server = self.conference_servers[conference_id]
+                
+                # conference_server.close() 这里关闭自定义的conf_server
+                
+                del self.conference_servers[conference_id]
+                
+                response_data = {
+                    "status": "success",
+                    "message": "Conference has been cancelled."
+                }
+                writer.write(json.dumps(response_data).encode('utf-8'))
+                await writer.drain()
+            else:
+                # 会议不存在的错误响应
+                error_response = {
+                    "status": "error",
+                    "message": "Conference not found.",
+                }
+                writer.write(json.dumps(error_response).encode('utf-8'))
+                await writer.drain()
+        except Exception as e:
+            # 错误响应
+            error_response = {
+                "status": "error",
+                "message": str(e),
+            }
+            writer.write(json.dumps(error_response).encode('utf-8'))
+            await writer.drain()
+            print(f"[Error]: Failed to cancel conference. Error: {e}")
 
     async def request_handler(self, reader, writer):
         """
@@ -119,7 +179,6 @@ class MainServer:
 
         try:
             while True:
-                print('abcde')
                 # Read the request type (assumes the client sends request type first)
                 data = await reader.read(1024)
                 if not data:
@@ -134,8 +193,17 @@ class MainServer:
                 elif request.startswith("join_conference"):
                     _, conference_id = request.split()
                     await self.handle_join_conference(int(conference_id), writer)
-                
-                    
+                elif request.startswith("quit_conference"):
+                    _, conference_id = request.split()
+                    await self.handle_quit_conference(reader, writer,conference_id)
+                elif request.startswith("cancel_conference"):
+                    _, conference_id = request.split()
+                    await self.handle_cancel_conference(reader, writer,conference_id)
+                else:
+                    response = "Unknown request"
+                    writer.write(response.encode())
+                    await writer.drain()
+                    print(f"[Server]: Sent response: {response}")
         except Exception as e:
             print(f"[Server]: Error: {e}")
         finally:

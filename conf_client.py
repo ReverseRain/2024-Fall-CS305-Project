@@ -53,17 +53,64 @@ class ConferenceClient:
         """
         pass
 
-    def quit_conference(self):
+    async def quit_conference(self,conference_id):
         """
         quit your on-going conference
         """
-        pass
+        try:
+        # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info("[Info]: Connected to the server to quit the conference.")
+            
+            request_data = "quit_conference "+str(conference_id)
+            
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
 
-    def cancel_conference(self):
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+            
+            if response_data.get("status") == "success":
+                self.on_meeting = False
+                self.show_info("[Success]: Successfully quit the conference.")
+            else:
+                self.show_info(f"[Error]: Failed to quit conference. Reason: {response_data.get('message')}")
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            self.show_info(f"[Error]: Unable to quit conference. Error: {e}")
+
+
+    async def cancel_conference(self):
         """
         cancel your on-going conference (when you are the conference manager): ask server to close all clients
         """
-        pass
+        try:
+        # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info("[Info]: Connected to the server to cancel the conference.")
+            
+            request_data = "cancel_conference "+str(self.conference_id)
+        
+            writer.write(request_data.encode('utf-8'))
+            await writer.drain()
+
+            # 接收服务器响应
+            response = await reader.read(1024)
+            response_data = json.loads(response.decode('utf-8'))
+            
+            if response_data.get("status") == "success":
+                self.on_meeting = False
+                self.show_info("[Success]: Successfully cancelled the conference.")
+            else:
+                self.show_info(f"[Error]: Failed to cancel conference. Reason: {response_data.get('message')}")
+
+            # 关闭连接
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            self.show_info(f"[Error]: Unable to cancel conference. Error: {e}")
 
     def keep_share(self, data_type, send_conn, capture_function, compress=None, fps_or_frequency=30):
         '''
@@ -124,10 +171,8 @@ class ConferenceClient:
                     print(HELP)
                 elif cmd_input == 'create':
                     asyncio.run(self.create_conference())
-                elif cmd_input == 'quit':
-                    self.quit_conference()
                 elif cmd_input == 'cancel':
-                    self.cancel_conference()
+                    asyncio.run(self.cancel_conference())
                 else:
                     recognized = False
             elif len(fields) == 2:
@@ -141,6 +186,8 @@ class ConferenceClient:
                     data_type = fields[1]
                     if data_type in self.share_data.keys():
                         self.share_switch(data_type)
+                elif fields[0] == 'quit':
+                    asyncio.run(self.quit_conference(fields[1]))
                 else:
                     recognized = False
             else:
