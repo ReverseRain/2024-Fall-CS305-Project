@@ -69,6 +69,7 @@ class MainServer:
             new_conference_server.conference_id = conference_id
             self.conference_servers[conference_id] = new_conference_server
 
+
             # 构造响应数据
             response_data = {
                 "status": "success",
@@ -183,6 +184,7 @@ class MainServer:
 
                 request = data.decode().strip()
                 print(f"[Server]: Request received: {request}")
+
                 # Dispatch the request
                 if request.startswith("create_conference"):
                     await self.handle_creat_conference(reader, writer)
