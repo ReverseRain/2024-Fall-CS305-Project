@@ -99,7 +99,7 @@ class ConferenceApp:
 
     def leave_meeting(self):
         # TODO
-        self.client.quit_conference()
+        asyncio.run(self.client.quit_conference())
         self.meeting_window.destroy()
 
     def mute_microphone(self):

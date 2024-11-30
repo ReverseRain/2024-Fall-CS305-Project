@@ -174,7 +174,7 @@ class MainServer:
             if conference_id in self.conference_servers:
                 conference_server = self.conference_servers[conference_id]
                 
-                # conference_server.close() 这里关闭自定义的conf_server
+                conference_server.cancel_conference() #这里关闭自定义的conf_server
                 
                 del self.conference_servers[conference_id]
                 

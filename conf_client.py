@@ -83,7 +83,7 @@ class ConferenceClient:
             self.show_info(f"[Error]: Unable to join conference. Error: {e}")
 
 
-    async def quit_conference(self,conference_id):
+    async def quit_conference(self):
         """
         quit your on-going conference
         """
@@ -92,7 +92,7 @@ class ConferenceClient:
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server to quit the conference.")
             
-            request_data = "quit_conference "+str(conference_id)
+            request_data = "quit_conference "+str(self.conference_id)
             
             writer.write(request_data.encode('utf-8'))
             await writer.drain()
