@@ -1,8 +1,9 @@
 import asyncio
 from util import *
-import config
+from config import *
 import json
 import uuid
+import random
 
 
 class ConferenceServer:
@@ -50,7 +51,7 @@ class MainServer:
         self.main_server = None
 
         self.conference_conns = None
-        self.conference_servers = {}  # self.conference_servers[conference_id] = ConferenceManager
+        self.conference_servers = {} # self.conference_servers[conference_id] = ConferenceManager
 
     async def handle_creat_conference(self, reader, writer):
         """
@@ -60,13 +61,16 @@ class MainServer:
         try:
             
             # 生成唯一的会议 ID
-            conference_id = str(uuid.uuid4())
+
+            conference_id = str(random.randint(10000000, 99999999))
+
             print(f"[Info]: Creating a new conference with ID: {conference_id}")
 
             # 初始化会议服务器
-           # new_conference_server = ConferenceServer()
-           # new_conference_server.conference_id = conference_id
-            #self.conference_servers[conference_id] = new_conference_server
+            new_conference_server = ConferenceServer()
+            new_conference_server.conference_id = conference_id
+            self.conference_servers[conference_id] = new_conference_server
+
 
             # 构造响应数据
             response_data = {
@@ -93,22 +97,110 @@ class MainServer:
             writer.close()
             await writer.wait_closed()
 
-    def handle_join_conference(self, conference_id):
+    async def handle_join_conference(self,reader, writer, conference_id):
         """
-        join conference: search corresponding conference_info and ConferenceServer, and reply necessary info to client
+        Join conference: search corresponding conference_info and ConferenceServer, and reply necessary info to client
         """
+        try:
+            # 检查会议是否存在
+            if conference_id in self.conference_servers:
+                conference_server = self.conference_servers[conference_id]
+                
+                # 这里你可以返回具体的会议相关信息，例如服务器的端口，或是其他必要信息
+                response_data = {
+                    "status": "success",
+                    "message": f"You have successfully joined the conference {conference_id}."
+                    
+                }
+                writer.write(json.dumps(response_data).encode('utf-8'))
+                await writer.drain()
+                print(f"[Server]: Client joined conference {conference_id}")
+            else:
+                # 会议不存在的错误响应
+                error_response = {
+                    "status": "error",
+                    "message": f"Conference {conference_id} not found.",
+                }
+                writer.write(json.dumps(error_response).encode('utf-8'))
+                await writer.drain()
+                print(f"[Server]: Failed to join conference {conference_id}. Conference not found.")
+        except Exception as e:
+            # 错误响应
+            error_response = {
+                "status": "error",
+                "message": str(e),
+            }
+            writer.write(json.dumps(error_response).encode('utf-8'))
+            await writer.drain()
+            print(f"[Server]: Error while trying to join conference {conference_id}. Error: {e}")
 
-    def handle_quit_conference(self):
+    async def handle_quit_conference(self, reader, writer, conference_id):
         """
         quit conference (in-meeting request & or no need to request)
         """
-        pass
+        try:
+            # 检查会议是否存在
+            if conference_id in self.conference_servers:
+                # 构造响应数据
+                response_data = {
+                    "status": "success",
+                    "message": "You have left the conference."
+                }
+                writer.write(json.dumps(response_data).encode('utf-8'))
+                await writer.drain()
+            else:
+                # 会议不存在的错误响应
+                error_response = {
+                    "status": "error",
+                    "message": "Conference not found.",
+                }
+                writer.write(json.dumps(error_response).encode('utf-8'))
+                await writer.drain()
+        except Exception as e:
+            # 错误响应
+            error_response = {
+                "status": "error",
+                "message": str(e),
+            }
+            writer.write(json.dumps(error_response).encode('utf-8'))
+            await writer.drain()
+            print(f"[Error]: Failed to quit conference. Error: {e}")
 
-    def handle_cancel_conference(self):
+    async def handle_cancel_conference(self, reader, writer, conference_id):
         """
         cancel conference (in-meeting request, a ConferenceServer should be closed by the MainServer)
         """
-        pass
+        try:
+            if conference_id in self.conference_servers:
+                conference_server = self.conference_servers[conference_id]
+                
+                # conference_server.close() 这里关闭自定义的conf_server
+                
+                del self.conference_servers[conference_id]
+                
+                response_data = {
+                    "status": "success",
+                    "message": "Conference has been cancelled."
+                }
+                writer.write(json.dumps(response_data).encode('utf-8'))
+                await writer.drain()
+            else:
+                # 会议不存在的错误响应
+                error_response = {
+                    "status": "error",
+                    "message": "Conference not found.",
+                }
+                writer.write(json.dumps(error_response).encode('utf-8'))
+                await writer.drain()
+        except Exception as e:
+            # 错误响应
+            error_response = {
+                "status": "error",
+                "message": str(e),
+            }
+            writer.write(json.dumps(error_response).encode('utf-8'))
+            await writer.drain()
+            print(f"[Error]: Failed to cancel conference. Error: {e}")
 
     async def request_handler(self, reader, writer):
         """
@@ -119,7 +211,6 @@ class MainServer:
 
         try:
             while True:
-                print('abcde')
                 # Read the request type (assumes the client sends request type first)
                 data = await reader.read(1024)
                 if not data:
@@ -133,7 +224,13 @@ class MainServer:
                     await self.handle_creat_conference(reader, writer)
                 elif request.startswith("join_conference"):
                     _, conference_id = request.split()
-                    await self.handle_join_conference(int(conference_id), writer)
+                    await self.handle_join_conference(reader, writer,conference_id)
+                elif request.startswith("quit_conference"):
+                    _, conference_id = request.split()
+                    await self.handle_quit_conference(reader, writer,conference_id)
+                elif request.startswith("cancel_conference"):
+                    _, conference_id = request.split()
+                    await self.handle_cancel_conference(reader, writer,conference_id)
                 else:
                     response = "Unknown request"
                     writer.write(response.encode())
@@ -159,5 +256,5 @@ class MainServer:
 
 
 if __name__ == '__main__':
-    server = MainServer(config.SERVER_IP, config.MAIN_SERVER_PORT)
+    server = MainServer(SERVER_IP, MAIN_SERVER_PORT)
     server.start()
