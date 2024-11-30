@@ -23,7 +23,13 @@ class ConferenceApp:
         self.join_meeting_button = tk.Button(master, text="Join Meeting", width=20, height=2, bg='#B2DFDB',
                                              fg='#212121', command=self.join_meeting)
         self.join_meeting_button.pack(expand=True)
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def on_closing(self):
+        if self.meeting_window:
+            self.meeting_window.destroy()
+        self.client.quit_conference()
+        self.master.destroy()
     def create_meeting(self):
         # 创建会议
         asyncio.run(self.client.create_conference())
@@ -38,6 +44,9 @@ class ConferenceApp:
             if self.client.on_meeting:
                 self.open_meeting_window(conference_id)
 
+    def on_closing_meeting_window(self):
+        self.on_closing()
+
     def open_meeting_window(self, conference_id):
         self.meeting_window = tk.Toplevel(self.master)
         self.meeting_window.title(f"Conference id: {conference_id}")
@@ -47,6 +56,10 @@ class ConferenceApp:
         frame_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         frame_right = tk.Frame(self.meeting_window)
         frame_right.pack(side=tk.RIGHT)
+
+        self.master.withdraw()
+
+        self.meeting_window.protocol("WM_DELETE_WINDOW", self.on_closing_meeting_window)
 
         win_height = 900
         win_width = 1800
@@ -99,12 +112,9 @@ class ConferenceApp:
 
     def leave_meeting(self):
         # TODO
-<<<<<<< HEAD
         asyncio.run(self.client.quit_conference())
-=======
-        asyncio.run(self.client.quit_conference(self.client.conference_id))
->>>>>>> 8bd28f5e13097ae59008d61897a71eec6da39cde
         self.meeting_window.destroy()
+        self.master.deiconify()
 
     def mute_microphone(self):
         self.microphone_button.config(text="Unmute Microphone",command=self.unmute_microphone)
