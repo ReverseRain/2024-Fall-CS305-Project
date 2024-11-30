@@ -34,8 +34,9 @@ class ConferenceApp:
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
         if conference_id:
-            self.client.join_conference(conference_id)
-            self.open_meeting_window(conference_id)
+            asyncio.run(self.client.join_conference(conference_id))
+            if self.client.on_meeting:
+                self.open_meeting_window(conference_id)
 
     def open_meeting_window(self, conference_id):
         self.meeting_window = tk.Toplevel(self.master)
@@ -90,8 +91,7 @@ class ConferenceApp:
     def send_message(self):
         message = self.msg_entry.get()
         # TODO 将消息发送到服务器，并且显示在消息显示框中
-
-
+        # asyncio.run(self.client.send_msg(message))
         self.msg_display.config(state='normal')
         self.msg_display.insert(tk.END, "You: " + message + "\n")
         self.msg_display.config(state='disabled')
@@ -99,7 +99,11 @@ class ConferenceApp:
 
     def leave_meeting(self):
         # TODO
+<<<<<<< HEAD
         asyncio.run(self.client.quit_conference())
+=======
+        asyncio.run(self.client.quit_conference(self.client.conference_id))
+>>>>>>> 8bd28f5e13097ae59008d61897a71eec6da39cde
         self.meeting_window.destroy()
 
     def mute_microphone(self):
