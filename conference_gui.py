@@ -23,28 +23,46 @@ class ConferenceApp:
         self.join_meeting_button = tk.Button(master, text="Join Meeting", width=20, height=2, bg='#B2DFDB',
                                              fg='#212121', command=self.join_meeting)
         self.join_meeting_button.pack(expand=True)
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def on_closing(self):
+        if self.meeting_window:
+            self.meeting_window.destroy()
+        self.client.quit_conference()
+        self.master.destroy()
     def create_meeting(self):
+        # 创建会议
         asyncio.run(self.client.create_conference())
+
+        if self.client.on_meeting:
+            self.open_meeting_window(self.client.conference_id)
 
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
         if conference_id:
-            self.client.join_conference(conference_id)
-            self.open_meeting_window(conference_id)
+            asyncio.run(self.client.join_conference(conference_id))
+            if self.client.on_meeting:
+                self.open_meeting_window(conference_id)
+
+    def on_closing_meeting_window(self):
+        self.on_closing()
 
     def open_meeting_window(self, conference_id):
         self.meeting_window = tk.Toplevel(self.master)
         self.meeting_window.title(f"Conference id: {conference_id}")
-        self.meeting_window.geometry("2000x1000")
+        self.meeting_window.geometry("1800x900")
 
         frame_left = tk.Frame(self.meeting_window)
         frame_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         frame_right = tk.Frame(self.meeting_window)
         frame_right.pack(side=tk.RIGHT)
 
-        win_height = 1000
-        win_width = 2000
+        self.master.withdraw()
+
+        self.meeting_window.protocol("WM_DELETE_WINDOW", self.on_closing_meeting_window)
+
+        win_height = 900
+        win_width = 1800
         frame_right_width = int(win_width / 4)
         frame_right.config(width=frame_right_width)
         frame_left.config(width=win_width - frame_right_width)
@@ -82,9 +100,11 @@ class ConferenceApp:
 
         self.leave_button = tk.Button(button_frame, text="Leave Meeting", command=self.leave_meeting)
         self.leave_button.pack(side=tk.LEFT, padx=10)
+
     def send_message(self):
         message = self.msg_entry.get()
         # TODO 将消息发送到服务器，并且显示在消息显示框中
+        # asyncio.run(self.client.send_msg(message))
         self.msg_display.config(state='normal')
         self.msg_display.insert(tk.END, "You: " + message + "\n")
         self.msg_display.config(state='disabled')
@@ -92,14 +112,27 @@ class ConferenceApp:
 
     def leave_meeting(self):
         # TODO
+        asyncio.run(self.client.quit_conference())
         self.meeting_window.destroy()
+        self.master.deiconify()
 
     def mute_microphone(self):
+        self.microphone_button.config(text="Unmute Microphone",command=self.unmute_microphone)
         # TODO
+        pass
+
+    def unmute_microphone(self):
+        self.microphone_button.config(text="Mute Microphone", command=self.mute_microphone)
         pass
 
     def turn_off_video(self):
         # TODO
+        self.video_button.config(text="Turn On Video", command=self.turn_on_video)
+        pass
+
+    def turn_on_video(self):
+        # TODO
+        self.video_button.config(text="Turn Off Video", command=self.turn_off_video)
         pass
 
     def run(self):
