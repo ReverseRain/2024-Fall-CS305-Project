@@ -9,7 +9,7 @@ class ConferenceApp:
     def __init__(self, master):
         self.master = master
         self.master.title("Conference Client")
-        self.client = ConferenceClient(("SERVER_IP", MAIN_SERVER_PORT))
+        self.client = ConferenceClient((SERVER_IP, MAIN_SERVER_PORT))
 
         self.master.geometry("800x600")
 
