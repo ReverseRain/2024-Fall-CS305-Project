@@ -178,6 +178,22 @@ class ConferenceClient:
         close all conns to servers or other clients and cancel the running tasks
         pay attention to the exception handling
         '''
+
+    async def send_text(self, text_message):
+        try:
+            # 初始化连接
+            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
+            self.show_info(f"[Info]: Connected to the server.")
+
+            writer.write(text_message.encode())
+            await writer.drain()  # 确保所有数据都被发送
+
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            self.show_info(f"[Error]: Unable to send data. Error: {e}")
+
+
     
     def show_info(self,info):
         print(info)
@@ -218,6 +234,8 @@ class ConferenceClient:
                         self.share_switch(data_type)
                 elif fields[0] == 'quit':
                     asyncio.run(self.quit_conference(fields[1]))
+                elif fields[0] == 'send':
+                    asyncio.run(self.send_text(fields[1]))
                 else:
                     recognized = False
             else:

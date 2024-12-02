@@ -27,6 +27,12 @@ class ConferenceServer:
         running task: handle the in-meeting requests or messages from clients
         """
 
+    async def receive_text(self, reader, writer):
+        text_message = await reader.read(1024)  # 假设消息不超过1024字节
+
+        reader.close()
+        return text_message.decode()  # 解码为字符串
+
     async def log(self):
         while self.running:
             print('Something about server status')
@@ -41,6 +47,15 @@ class ConferenceServer:
         '''
         start the ConferenceServer and necessary running tasks to handle clients in this conference
         '''
+        async def start_server():
+            print(f"[Server]: Starting server at {self.server_ip}:{self.conf_serve_ports}")
+            self.main_server = await asyncio.start_server(self.handle_client, self.server_ip, self.conf_serve_ports)
+
+            # Serve the server until it is stopped
+            async with self.main_server:
+                await self.main_server.serve_forever()
+                    
+        asyncio.run(start_server())
 
 
 class MainServer:
