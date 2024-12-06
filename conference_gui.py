@@ -8,31 +8,43 @@ from config import *
 class ConferenceApp:
     def __init__(self, master):
         self.master = master
+        self.master.withdraw()
         self.master.title("Conference Client")
         self.client = ConferenceClient((SERVER_IP, MAIN_SERVER_PORT))
 
         self.master.geometry("800x600")
 
+        self.username = simpledialog.askstring("Input", "Enter your name:", parent=self.master)
+
+        if not self.username:
+            self.username = "Guest"  # 如果用户没有输入姓名，默认使用 "Guest"
+
+        # self.master.withdraw()  # 隐藏主窗口
+        self.hello_label = tk.Label(master, text=f"Hello {self.username}!", font=('Times New Roman', 14))
+        self.hello_label.pack(anchor='n', padx=10, pady=10)
+
         # 创建会议按钮
         self.create_meeting_button = tk.Button(master, text="Create Meeting", width=20, height=2, bg='#00796B',
-                                               fg='white',
-                                               command=self.create_meeting)
+                                               fg='white', command=self.create_meeting)
         self.create_meeting_button.pack(expand=True)
 
         # 加入会议按钮
         self.join_meeting_button = tk.Button(master, text="Join Meeting", width=20, height=2, bg='#B2DFDB',
                                              fg='#212121', command=self.join_meeting)
         self.join_meeting_button.pack(expand=True)
+
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_closing(self):
-        if self.meeting_window:
+        if hasattr(self, 'meeting_window'):
             self.meeting_window.destroy()
         self.client.quit_conference()
         self.master.destroy()
+
     def create_meeting(self):
         # 创建会议
-        asyncio.run(self.client.create_conference())
+        tmp=self.client.create_conference()
+        asyncio.run(tmp)
 
         if self.client.on_meeting:
             self.open_meeting_window(self.client.conference_id)
@@ -104,7 +116,7 @@ class ConferenceApp:
     def send_message(self):
         message = self.msg_entry.get()
         # TODO 将消息发送到服务器，并且显示在消息显示框中
-        # asyncio.run(self.client.send_msg(message))
+        # asyncio.run(self.client.send_message(message))
         self.msg_display.config(state='normal')
         self.msg_display.insert(tk.END, "You: " + message + "\n")
         self.msg_display.config(state='disabled')
@@ -117,7 +129,7 @@ class ConferenceApp:
         self.master.deiconify()
 
     def mute_microphone(self):
-        self.microphone_button.config(text="Unmute Microphone",command=self.unmute_microphone)
+        self.microphone_button.config(text="Unmute Microphone", command=self.unmute_microphone)
         # TODO
         pass
 
@@ -136,6 +148,7 @@ class ConferenceApp:
         pass
 
     def run(self):
+        self.master.deiconify()  # 显示主窗口
         self.master.mainloop()
 
 

@@ -275,7 +275,7 @@ class MainServer:
                     "conference_id": conference_id,
                     "conference_ip": self.server_ip,
                     "conference_message_port": self.conference_servers[conference_id].conf_serve_ports,
-                    "conference_video_port":self.conference_servers[conference_id].data_serve_ports[0]
+                    "conference_video_port":self.conference_servers[conference_id].data_serve_ports['video']
                    # "server_ip": self.server_ip,
                    # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                 }
