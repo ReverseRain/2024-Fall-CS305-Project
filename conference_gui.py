@@ -57,6 +57,7 @@ class ConferenceApp:
         if self.client.on_meeting:
             self.open_meeting_window(self.client.conference_id)
             asyncio.create_task(self.run_receive_message())
+            asyncio.create_task(self.client.receive_video())
 
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
@@ -69,7 +70,9 @@ class ConferenceApp:
         if self.client.on_meeting:
             self.open_meeting_window(conference_id)
             asyncio.create_task(self.run_receive_message())
+            asyncio.create_task(self.client.receive_video())
 
+#60198  60208
     def on_closing_meeting_window(self):
         self.on_closing()
 

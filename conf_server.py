@@ -22,6 +22,7 @@ class ConferenceServer:
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
         self.video_server=None
+        self.video_client_conns=[]
 
     async def handle_data(self, reader, writer, data_type):
         """
@@ -60,34 +61,38 @@ class ConferenceServer:
             await writer.wait_closed()
 
     async def handle_video(self,reader,writer):
+        self.video_client_conns.append((reader,writer))
         client_addr = writer.get_extra_info('peername')
+        print(f"Client-{client_addr}")
         window_name = f"Client-{client_addr}"
         try:
             while True:
                 length_data = await reader.readexactly(4)
-                frame_length = int.from_bytes(length_data, 'big')
+                receive_len = int.from_bytes(length_data, 'big')
 
-                print(f"[{window_name}] Expected frame length: {frame_length}")
+                print(f"[{window_name}] Expected frame length: {receive_len}")
 
 
-                if frame_length==0:
-                    print(f"[{window_name}]: Received stop signal. Closing display.")
-                    cv2.destroyWindow(window_name)
-                    continue
+                # if frame_length==0:
+                #     print(f"[{window_name}]: Received stop signal. Closing display.")
+                #     cv2.destroyWindow(window_name)
+                #     continue
 
                 # 确保读取到完整的帧数据
-                data = await reader.readexactly(frame_length)
-                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
+                data = await reader.readexactly(receive_len)
+                packet=length_data+data
+                await self.broadcast_video(packet,writer)
+                # frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
                 
-                if frame is None:
-                    print(f"[{window_name}]: Failed to decode frame.")
-                    continue
+                # if frame is None:
+                #     print(f"[{window_name}]: Failed to decode frame.")
+                #     continue
 
                 
 
-                cv2.imshow(window_name, frame)
-                cv2.waitKey(1)
-                
+                # cv2.imshow(window_name, frame)
+                # cv2.waitKey(1)
+
 
                 
 
@@ -124,17 +129,16 @@ class ConferenceServer:
                 except Exception as e:
                     print(f"[Error]: Failed to send message to client: {e}")
     
-    async def broadcast_video(self, frame, sock):
+    async def broadcast_video(self, packet, sock):
 
         # 遍历所有客户端连接
-        for port in self.data_serve_ports:
-            if port != sock.sockets[0].getsockname()[1]:
-                try:
-                    # 压缩视频帧并发送
-                    compressed_frame = compress_image(frame, format='JPEG', quality=85)
-                    sock.sendto(compressed_frame,self.conf_serve_ip)
-                except Exception as e:
-                    print(f"[Error]: Failed to send frame to client: {e}")
+        for reader,writer in self.video_client_conns:
+            #if writer != sock:
+            try:
+                writer.write(packet)
+                await writer.drain()
+            except Exception as e:
+                print(f"[Error]: Failed to send video to client: {e}")
             
                 
 
