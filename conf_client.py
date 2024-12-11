@@ -1,9 +1,10 @@
+import asyncudp
+
 from util import *
 import asyncio
 import json
 from config import *
 import struct
-
 
 
 class ConferenceClient:
@@ -22,9 +23,16 @@ class ConferenceClient:
 
         self.recv_data = None  # you may need to save received streamd data from other clients in conference
 
+        self.username = None
+        self.on_video = False
 
-        self.username=None
-        self.on_video=False
+        self.on_mic = False
+
+    def setup_audio(self):
+        """初始化音频流"""
+        self.audio = pyaudio.PyAudio()
+        self.streamin = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+        self.streamout = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
 
     async def create_conference(self):
         try:
@@ -32,7 +40,6 @@ class ConferenceClient:
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server for creating a conference.")
 
-            
             # 构造创建会议的请求数据
             request_data = "create_conference"
 
@@ -48,9 +55,11 @@ class ConferenceClient:
                 self.on_meeting = True
                 self.conference_id = self.conference_info['conference_id']
                 self.conf_server_addr['message'] = (
-                self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
+                    self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
                 self.conf_server_addr['video'] = (
-                self.conference_info['conference_ip'], self.conference_info['conference_video_port'])
+                    self.conference_info['conference_ip'], self.conference_info['conference_video_port'])
+                self.conf_server_addr['audio'] = (
+                    self.conference_info['conference_ip'], self.conference_info['conference_audio_port'])
                 # print(self.conf_server_addr['message'])
                 self.show_info(f"[Success]: Conference created with ID: {self.conference_id}")
             else:
@@ -73,7 +82,6 @@ class ConferenceClient:
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info(f"[Info]: Connected to the server to join conference with ID: {conference_id}.")
 
-            
             # 构造加入会议的请求数据
             request_data = f"join_conference {conference_id}"
             writer.write(request_data.encode('utf-8'))
@@ -89,9 +97,11 @@ class ConferenceClient:
                 self.on_meeting = True
                 self.conference_id = conference_id
                 self.conf_server_addr['message'] = (
-                self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
+                    self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
                 self.conf_server_addr['video'] = (
-                self.conference_info['conference_ip'], self.conference_info['conference_video_port'])
+                    self.conference_info['conference_ip'], self.conference_info['conference_video_port'])
+                self.conf_server_addr['audio'] = (
+                    self.conference_info['conference_ip'], self.conference_info['conference_audio_port'])
                 self.show_info(f"[Success]: Successfully joined conference with ID: {self.conference_id}")
             else:
                 # 会议加入失败
@@ -124,6 +134,7 @@ class ConferenceClient:
 
             if response_data.get("status") == "success":
                 self.on_meeting = False
+                self.on_mic = False
                 self.show_info("[Success]: Successfully quit the conference.")
             else:
                 self.show_info(f"[Error]: Failed to quit conference. Reason: {response_data.get('message')}")
@@ -199,7 +210,7 @@ class ConferenceClient:
         except Exception as e:
             self.show_info(f"[Error]: Failed to send message. Error: {e}")
 
-    async def receive_message(self,message_callback):
+    async def receive_message(self, message_callback):
         """
         接收来自会议中的其他客户端的消息
         """
@@ -270,21 +281,20 @@ class ConferenceClient:
 
         try:
             if 'message' not in self.conns:
-                self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
+                self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0],
+                                                                      self.conf_server_addr['message'][1])
             if 'video' not in self.conns:
-                self.conns['video'] = await asyncio.open_connection(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
-        #         connect = asyncio.get_event_loop().create_datagram_endpoint(
-        #     lambda: EchoUDPClientProtocol(),
-        #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
-        # )
-        #         transport, protocol = await connect
-        #         self.conns['video']=(transport,protocol)
-
-
-                
-            
-            
-            
+                self.conns['video'] = await asyncio.open_connection(self.conf_server_addr['video'][0],
+                                                                    self.conf_server_addr['video'][1])
+            if 'audio' not in self.conns:
+                self.conns['audio'] = await asyncio.open_connection(self.conf_server_addr['audio'][0],
+                                                                    self.conf_server_addr['audio'][1])
+            #         connect = asyncio.get_event_loop().create_datagram_endpoint(
+            #     lambda: EchoUDPClientProtocol(),
+            #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
+            # )
+            #         transport, protocol = await connect
+            #         self.conns['video']=(transport,protocol)
 
             print(
                 f"[Info]: Connected to message server: {self.conf_server_addr['message']} and video server: {self.conf_server_addr['video']}")
@@ -329,6 +339,76 @@ class ConferenceClient:
             if user_input.strip():  # 如果用户输入了内容
                 await self.send_message(user_input)
 
+    async def send_audio(self):
+        """从麦克风捕获音频并通过UDP发送到服务器"""
+        if not self.on_meeting:
+            self.show_info("[Error]: You are not in a conference.")
+            return
+
+        if not self.conns['audio']:
+            self.show_info("[Error]: Not connected to the server.")
+            return
+        stream=self.audio.open(format=pyaudio.paInt16,
+                                channels=1,
+                                rate=16000,
+                                input=True,
+                                frames_per_buffer=CHUNK)
+        reader, writer = self.conns['audio']
+        print("[ConferenceClient]: Starting to send audio data...")
+
+        try:
+            while self.on_mic:
+                # 从麦克风读取音频数据
+                audio_data = capture_voice()
+
+                # 发送音频数据到服务器
+                writer.write(audio_data)
+                await writer.drain()
+        except Exception as e:
+            print(f"[ConferenceClient]: Error while sending audio: {e}")
+        finally:
+            print("[ConferenceClient]: Closing audio stream")
+            stream.stop_stream()
+            stream.close()
+            self.audio.terminate()
+            writer.close()
+            await writer.wait_closed()
+
+
+    async def receive_audio(self):
+        """接收来自其他客户端的音频数据并播放"""
+        if not self.on_meeting:
+            self.show_info("[Error]: You are not in a conference.")
+            return
+
+        if not self.conns['audio']:
+            self.show_info("[Error]: Not connected to the audio server.")
+            return
+
+        while self.on_meeting:
+            if self.recv_data:
+                # 播放音频数据
+                self.play_audio(self.recv_data)
+            await asyncio.sleep(0.01)
+
+    def play_audio(self, audio_data):
+        """播放接收到的音频数据"""
+        self.streamout.write(audio_data)  # 播放音频
+
+    async def start_audio(self):
+        loop = asyncio.get_event_loop()
+
+        # 创建音频发送的UDP端点
+        self.audio_transport, self.audio_protocol = await loop.create_datagram_endpoint(
+            lambda: AudioUDPProtocol(self),
+            remote_addr=self.server_addr  # 服务器地址（IP, PORT）
+        )
+
+        # 启动音频发送和接收任务
+        self.setup_audio()
+        await asyncio.create_task(self.send_audio())
+        await asyncio.create_task(self.receive_audio())
+
     async def send_video(self):
         if not self.on_meeting:
             self.show_info("[Error]: You are not in a conference.")
@@ -342,17 +422,16 @@ class ConferenceClient:
 
             reader, writer = self.conns['video']
 
-
             while self.on_video:
                 screen_frame = capture_screen()
-                #camera_frame = capture_camera()
+                # camera_frame = capture_camera()
 
                 # 压缩帧
                 compressed_screen = compress_image(screen_frame, format='JPEG', quality=85)
                 # compressed_camera = compress_image(camera_frame, format='JPEG', quality=85)
 
                 # print(compressed_screen.tell())
-                
+
                 # writer.write(compressed_camera)
                 frame_length = len(compressed_screen).to_bytes(4, 'big')
                 print(len(compressed_screen))
@@ -360,11 +439,11 @@ class ConferenceClient:
                 await writer.drain()
                 self.show_info(f"[Info]: sending video")
                 await asyncio.sleep(5)
-            
+
             writer.write(b'\x00\x00\x00\x00')
             await writer.drain()
             print("[Info]: Sent stop video signal.")
-                    
+
 
 
         except Exception as e:
@@ -372,9 +451,6 @@ class ConferenceClient:
             writer.write(b'\x00\x00\x00\x00')
             await writer.drain()
             print("[Info]: Sent stop video signal.")
-        
-       
-            
 
     async def receive_video(self):
         if not self.on_meeting:
@@ -507,6 +583,7 @@ class ConferenceClient:
                 if not recognized:
                     print(f'[Warn]: Unrecognized cmd_input {cmd_input}')
 
+
 class EchoUDPClientProtocol(asyncio.DatagramProtocol):
     def __init__(self):
         self.transport = None
@@ -518,12 +595,19 @@ class EchoUDPClientProtocol(asyncio.DatagramProtocol):
         message = data.decode()
         print(f"Received response: {message} from {addr}")
         # 调用回调函数处理响应
-       
 
     def error_received(self, exc):
         print(f"Error received: {exc}")
         self.transport.close()
 
+
+class AudioUDPProtocol:
+    def __init__(self, client):
+        self.client = client
+
+    def datagram_received(self, data, addr):
+        """接收到音频数据后播放"""
+        self.client.recv_data = data  # 保存接收到的音频数据
 
 
 if __name__ == '__main__':

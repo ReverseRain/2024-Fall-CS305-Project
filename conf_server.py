@@ -11,25 +11,59 @@ import struct
 class ConferenceServer:
     def __init__(self, ip):
         # async server
-        self.conference_server=None
+        self.conference_server = None
         self.conference_id = None  # conference_id for distinguish difference conference
         self.conf_serve_ip = ip
         self.conf_serve_ports = None
         self.data_serve_ports = {}
         self.data_types = ['screen', 'camera', 'audio']  # example data types in a video conference
         self.clients_info = None
-        self.client_conns = []  #维护所有在会议中的client
+        self.client_conns = []  # 维护所有在会议中的client
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
-        self.video_server=None
+        self.video_server = None
 
     async def handle_data(self, reader, writer, data_type):
         """
         running task: receive sharing stream data from a client and decide how to forward them to the rest clients
         """
-    
-    async def handle_audio(self,):
-        pass
+
+    async def handle_audio(self, reader, writer, addr):
+        """
+        addr: ('ip', port)
+        todo
+        """
+        # data=await reader.read(1024)
+        # while data:
+        #     await self.broadcast_audio(data, addr)
+        #     data = await reader.read(1024)
+        addr = writer.get_extra_info('peername')
+        print(f"[ConferenceServer]: Audio data received from {addr}")
+
+        while True:
+            try:
+                # 接收音频数据
+                data = await reader.read(1024)
+                if not data:
+                    break  # 如果没有数据，退出循环
+                print(f"[ConferenceServer]: Audio data received: {len(data)} bytes")
+
+                # 将接收到的数据转发给其他客户端
+                for client_conn in self.client_conns:
+                    if client_conn != writer:  # 不发给自己
+                        client_conn.write(data)
+                        await client_conn.drain()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[ConferenceServer]: Error while handling audio: {e}")
+                break
+
+        # 关闭连接
+        print(f"[ConferenceServer]: Closing audio connection from {addr}")
+        self.client_conns.remove(writer)
+        writer.close()
+        await writer.wait_closed()
 
     async def handle_message(self, reader, writer):
         """
@@ -37,7 +71,7 @@ class ConferenceServer:
         """
         try:
             while True:
-                
+
                 data = await reader.read(1024)
                 if not data:
                     break  # 如果没有接收到数据，退出循环
@@ -59,7 +93,7 @@ class ConferenceServer:
             writer.close()
             await writer.wait_closed()
 
-    async def handle_video(self,reader,writer):
+    async def handle_video(self, reader, writer):
         client_addr = writer.get_extra_info('peername')
         window_name = f"Client-{client_addr}"
         try:
@@ -69,31 +103,23 @@ class ConferenceServer:
 
                 print(f"[{window_name}] Expected frame length: {frame_length}")
 
-
-                if frame_length==0:
+                if frame_length == 0:
                     print(f"[{window_name}]: Received stop signal. Closing display.")
                     cv2.destroyWindow(window_name)
                     continue
 
                 # 确保读取到完整的帧数据
                 data = await reader.readexactly(frame_length)
-                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
-                
+                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+
                 if frame is None:
                     print(f"[{window_name}]: Failed to decode frame.")
                     continue
 
-                
-
                 cv2.imshow(window_name, frame)
                 cv2.waitKey(1)
-                
 
-                
-
-                
-
-                #await self.broadcast_video(frame, sock)
+                # await self.broadcast_video(frame, sock)
         except asyncio.IncompleteReadError:
             print(f"[{window_name}]: Client disconnected abruptly.")
         except Exception as e:
@@ -105,25 +131,27 @@ class ConferenceServer:
             writer.close()
             await writer.wait_closed()
             cv2.destroyAllWindows()
-        
 
-
-            
-
-
-    
     async def broadcast_message(self, message, sock):
         """
         广播文本消息给所有客户端，除了发送者
         """
-        for reader,writer in self.client_conns:
+        for reader, writer in self.client_conns:
             if writer != sock:
                 try:
                     writer.write(message.encode())
                     await writer.drain()
                 except Exception as e:
                     print(f"[Error]: Failed to send message to client: {e}")
-    
+
+    async def broadcast_audio(self, audio, addr):
+        for client in self.client_conns:
+            if client.get_extra_info('sockname') == addr:
+                continue
+            client[1].write(audio)
+            await client[1].drain()
+            # client.sendto(audio, client.get_extra_info('sockname'))
+
     async def broadcast_video(self, frame, sock):
 
         # 遍历所有客户端连接
@@ -132,11 +160,9 @@ class ConferenceServer:
                 try:
                     # 压缩视频帧并发送
                     compressed_frame = compress_image(frame, format='JPEG', quality=85)
-                    sock.sendto(compressed_frame,self.conf_serve_ip)
+                    sock.sendto(compressed_frame, self.conf_serve_ip)
                 except Exception as e:
                     print(f"[Error]: Failed to send frame to client: {e}")
-            
-                
 
     async def handle_client(self, reader, writer):
         """
@@ -146,31 +172,36 @@ class ConferenceServer:
         print(f"[ConferenceServer]: New client connected from {addr}")
 
         # 添加客户端连接到会议
-        self.client_conns.append((reader,writer))
+        self.client_conns.append((reader, writer))
 
         try:
             # 为不同的数据类型创建异步任务来处理
-            message_task = asyncio.create_task(self.handle_message(reader, writer))
-            #video_task = asyncio.create_task(self.handle_video(reader, writer))
+            # message_task = asyncio.create_task(self.handle_message(reader, writer))
+            # video_task = asyncio.create_task(self.handle_video(reader, writer))
             # # 这里创建任务来处理视频和音频流的接收
             # video_task = asyncio.create_task(self.handle_video_audio_stream('screen'))
-            #video_task = asyncio.create_task(self.handle_video(self.video_server))
+            # video_task = asyncio.create_task(self.handle_video(self.video_server))
             # audio_task = asyncio.create_task(self.handle_video_audio_stream('audio'))
+            # audio_task = asyncio.create_task(self.handle_audio(reader,writer,addr))
 
             # 等待任务执行并并行处理
-            await asyncio.gather(message_task)
+            # await asyncio.gather(message_task, audio_task)
+            while True:
+                data = await reader.read(100)
+                if not data:
+                    break
+                # 处理客户端请求，包含音频传输等
+                if data == b'audio':
+                    await self.handle_audio(reader, writer)
 
         except Exception as e:
             print(f"[Error]: Error while handling client: {e}")
         finally:
             # 客户端断开时移除连接
             print(f"[ConferenceServer]: Client disconnected from {addr}")
-            self.client_conns.remove((reader,writer))
+            self.client_conns.remove((reader, writer))
             writer.close()
             await writer.wait_closed()
-        
-
-
 
     async def receive_text(self, reader, writer):
         text_message = await reader.read(1024)  # 假设消息不超过1024字节
@@ -192,12 +223,13 @@ class ConferenceServer:
         '''
         start the ConferenceServer and necessary running tasks to handle clients in this conference
         '''
+
         async def start_server():
-            #main server TCP . handle request  message
+            # main server TCP . handle request  message
             self.conference_server = await asyncio.start_server(self.handle_client, self.conf_serve_ip, 0)
             self.conf_serve_ports = self.conference_server.sockets[0].getsockname()[1]
-            
-            #创建处理视频的udp socket
+
+            # 创建处理视频的udp socket
             '''
             transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
                 lambda: EchoUDPProtocol(self),
@@ -208,33 +240,58 @@ class ConferenceServer:
             self.data_serve_ports['video']=transport.get_extra_info('sockname')[1]
             '''
 
+            # audio udp
+            ############## TODO 这里有问题，无法创建会议 ############################
 
-            self.video_server=await asyncio.start_server(self.handle_video, self.conf_serve_ip, 0)
-            self.data_serve_ports['video']=self.video_server.sockets[0].getsockname()[1]
+            # audio_server = await asyncio.get_running_loop().create_datagram_endpoint(
+            #     lambda: AudioUDPProtocol(self),
+            #     local_addr=(self.conf_serve_ip, 12345)
+            # )
+            # transport, protocol = await audio_server
+            # self.data_serve_ports['audio'] = transport.get_extra_info('sockname')[1]
+
+            #######################################################
+            self.video_server = await asyncio.start_server(self.handle_video, self.conf_serve_ip, 0)
+            self.data_serve_ports['video'] = self.video_server.sockets[0].getsockname()[1]
 
             print(f"[ConferenceServer]: Starting main server at {self.conf_serve_ip}:{self.conf_serve_ports}")
             print(f"[ConferenceServer]: Starting video server at {self.conf_serve_ip}:{self.data_serve_ports['video']}")
             # Serve the server until it is stopped
             async with self.conference_server:
-                await self.conference_server.serve_forever() 
-                    
+                await self.conference_server.serve_forever()
+
         await start_server()
-      
 
     async def wait_for_port_assignment(self):
         """
         等待端口号分配完成
         """
-        while self.conf_serve_ports  is None:
+        while self.conf_serve_ports is None:
             await asyncio.sleep(0.1)  # 等待端口分配，避免过多占用 CPU 时间
 
-#udp 处理视频
+
+# UDP audio
+class AudioUDPProtocol:
+    def __init__(self, server):
+        self.server = server
+# 8 3 6 9 / 9  38  6
+    def datagram_received(self, data, addr):
+        asyncio.create_task(self.server.handle_audio(data, addr))
+
+    def connection_made(self, transport):
+        """
+        Called when the connection is established.
+        """
+        self.transport = transport
+        print(f"Connection established to {transport.get_extra_info('peername')}")
+
+# udp 处理视频
 class EchoUDPProtocol(asyncio.DatagramProtocol):
-    def __init__(self,server):
+    def __init__(self, server):
         self.transport = None
         self.received_chunks = {}  # 用于存储接收到的块
         self.total_chunks = 0
-        self.main_server=server
+        self.main_server = server
 
     def connection_made(self, transport):
         self.transport = transport
@@ -261,10 +318,9 @@ class EchoUDPProtocol(asyncio.DatagramProtocol):
         # 如果所有块都已经收到，进行重组
         if len(self.received_chunks) == self.total_chunks:
             asyncio.get_event_loop().run_in_executor(None, self.handle_data)
-            
 
             # 重置状态，为下一个图像准备
-            
+
     def handle_data(self):
         # 将所有块按序号排序并合并
         print(f'handle data total_chunks= {self.total_chunks}')
@@ -283,7 +339,6 @@ class EchoUDPProtocol(asyncio.DatagramProtocol):
         self.total_chunks = 0
 
 
-
 class MainServer:
     def __init__(self, server_ip, main_port):
         # async server
@@ -292,7 +347,7 @@ class MainServer:
         self.main_server = None
 
         self.conference_conns = None
-        self.conference_servers = {} # self.conference_servers[conference_id] = ConferenceManager
+        self.conference_servers = {}  # self.conference_servers[conference_id] = ConferenceManager
 
     async def handle_creat_conference(self, reader, writer):
         """
@@ -300,7 +355,7 @@ class MainServer:
         and reply necessary info to client.
         """
         try:
-            
+
             # 生成唯一的会议 ID
 
             conference_id = str(random.randint(10000000, 99999999))
@@ -314,9 +369,8 @@ class MainServer:
             asyncio.create_task(new_conference_server.start())
             print('here')
 
-
             await new_conference_server.wait_for_port_assignment()
-            print(new_conference_server.data_serve_ports['video'])
+            # print(new_conference_server.data_serve_ports['video'])
             # 构造响应数据
             response_data = {
                 "status": "success",
@@ -324,9 +378,9 @@ class MainServer:
                     "conference_id": conference_id,
                     "conference_ip": self.server_ip,
                     "conference_message_port": new_conference_server.conf_serve_ports,
-                    "conference_video_port":new_conference_server.data_serve_ports['video']
-                   # "server_ip": self.server_ip,
-                   # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
+                    "conference_video_port": new_conference_server.data_serve_ports['video']
+                    # "server_ip": self.server_ip,
+                    # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                 }
             }
             writer.write(json.dumps(response_data).encode('utf-8'))
@@ -345,7 +399,7 @@ class MainServer:
             writer.close()
             await writer.wait_closed()
 
-    async def handle_join_conference(self,reader, writer, conference_id):
+    async def handle_join_conference(self, reader, writer, conference_id):
         """
         Join conference: search corresponding conference_info and ConferenceServer, and reply necessary info to client
         """
@@ -353,19 +407,19 @@ class MainServer:
             # 检查会议是否存在
             if conference_id in self.conference_servers:
                 conference_server = self.conference_servers[conference_id]
-                
+
                 # 这里你可以返回具体的会议相关信息，例如服务器的端口，或是其他必要信息
                 response_data = {
                     "status": "success",
                     "conference_info": {
-                    "conference_id": conference_id,
-                    "conference_ip": self.server_ip,
-                    "conference_message_port": self.conference_servers[conference_id].conf_serve_ports,
-                    "conference_video_port":self.conference_servers[conference_id].data_serve_ports['video']
-                   # "server_ip": self.server_ip,
-                   # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
-                }
-                    
+                        "conference_id": conference_id,
+                        "conference_ip": self.server_ip,
+                        "conference_message_port": self.conference_servers[conference_id].conf_serve_ports,
+                        "conference_video_port": self.conference_servers[conference_id].data_serve_ports['video']
+                        # "server_ip": self.server_ip,
+                        # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
+                    }
+
                 }
                 writer.write(json.dumps(response_data).encode('utf-8'))
                 await writer.drain()
@@ -428,11 +482,11 @@ class MainServer:
         try:
             if conference_id in self.conference_servers:
                 conference_server = self.conference_servers[conference_id]
-                
-                conference_server.cancel_conference() #这里关闭自定义的conf_server
-                
+
+                conference_server.cancel_conference()  # 这里关闭自定义的conf_server
+
                 del self.conference_servers[conference_id]
-                
+
                 response_data = {
                     "status": "success",
                     "message": "Conference has been cancelled."
@@ -479,13 +533,13 @@ class MainServer:
                     await self.handle_creat_conference(reader, writer)
                 elif request.startswith("join_conference"):
                     _, conference_id = request.split()
-                    await self.handle_join_conference(reader, writer,conference_id)
+                    await self.handle_join_conference(reader, writer, conference_id)
                 elif request.startswith("quit_conference"):
                     _, conference_id = request.split()
-                    await self.handle_quit_conference(reader, writer,conference_id)
+                    await self.handle_quit_conference(reader, writer, conference_id)
                 elif request.startswith("cancel_conference"):
                     _, conference_id = request.split()
-                    await self.handle_cancel_conference(reader, writer,conference_id)
+                    await self.handle_cancel_conference(reader, writer, conference_id)
                 else:
                     response = "Unknown request"
                     writer.write(response.encode())
@@ -506,7 +560,7 @@ class MainServer:
             # Serve the server until it is stopped
             async with self.main_server:
                 await self.main_server.serve_forever()
-                    
+
         asyncio.run(start_server())
 
 
