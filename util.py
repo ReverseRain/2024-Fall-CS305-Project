@@ -131,6 +131,7 @@ def compress_image(image, format='JPEG', quality=85):
     """
     img_byte_arr = BytesIO()
     image.save(img_byte_arr, format=format, quality=quality)
+    print(img_byte_arr.tell())
     img_byte_arr = img_byte_arr.getvalue()
 
     return img_byte_arr
