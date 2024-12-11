@@ -5,6 +5,7 @@ from config import *
 import struct
 import asyncudp
 
+CHUNK_SIZE = 1024
 class ConferenceClient:
     def __init__(self,server_addr):
         # sync client
@@ -43,11 +44,11 @@ class ConferenceClient:
                 self.conference_id=self.conference_info['conference_id']
                 self.conf_server_addr['message']=(self.conference_info['conference_ip'],self.conference_info['conference_message_port'])
                 self.conf_server_addr['video']=(self.conference_info['conference_ip'],self.conference_info['conference_video_port'])
-                #print(self.conf_server_addr['message'])
                 self.show_info(f"[Success]: Conference created with ID: {self.conference_id}")
             else:
                 self.show_info(f"[Error]: Failed to create conference. Reason: {response_data.get('message')}")
 
+            self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
             # 关闭连接
             writer.close()
             await writer.wait_closed()
@@ -209,7 +210,6 @@ class ConferenceClient:
                 response = await reader.read(1024)
                 if not response:
                     break  # 如果没有接收到数据，退出接收
-               # print(response)
                 message_data = json.loads(response.decode('utf-8'))
                 sender=message_data.get("sender")
                 message = message_data.get("message")
@@ -294,14 +294,31 @@ class ConferenceClient:
 
                 # 压缩帧
                 compressed_screen = compress_image(screen_frame, format='JPEG', quality=85)
-                # compressed_camera = compress_image(camera_frame, format='JPEG', quality=85)
 
-                # print(compressed_screen.tell())
-                sock.sendto(compressed_screen)
-                # writer.write(compressed_camera)
-                # await writer.drain()
-                self.show_info(f"[Info]: sending video")
-                print(await sock.recvfrom())
+                total_size = len(compressed_screen)
+                num_chunks = (total_size + CHUNK_SIZE - 1) // CHUNK_SIZE  # 计算总共需要的块数
+
+                for i in range(num_chunks,0,-1):
+                    # 获取当前块
+                    start = (i-1) * CHUNK_SIZE
+                    end = min((i) * CHUNK_SIZE, total_size)
+                    chunk = compressed_screen[start:end]
+
+                    # 包装每个块的数据，格式：块序号（4字节） + 当前块数据
+                    chunk_data = struct.pack('I', i-1) + chunk
+
+                    
+                    sock.sendto(chunk_data)
+                    print(f"Sent chunk {i-1}/{num_chunks} ({len(chunk)} bytes)")
+                    print('?')
+                    try:
+                        print( sock.recvfrom())
+                    except Exception as e:
+                        print(f"what fuck{e}")
+                    print(f"Sent chunk {i-1}/{num_chunks} ({len(chunk)} bytes)")
+                
+                
+                
 
 
         except Exception as e:
@@ -356,10 +373,11 @@ class ConferenceClient:
         try:
             # 初始化连接
             # if(self.conns['message']!=None):
-            self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
+            if(self.conns['message']==None):
+                self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
             self.conns['video'] = await asyncudp.create_socket(remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1]))
-            print(self.conf_server_addr['video'][1])
             self.show_info(f"[Info]: Connected to the conference {self.conference_id} message server")
+            print('port',self.conns['video'].getsockname()[1])
 
             # 启动接收消息的任务
             # receive_task = asyncio.create_task(self.receive_video())
@@ -379,7 +397,7 @@ class ConferenceClient:
 
         try:
             # 初始化连接
-            self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
+            # self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
             self.show_info(f"[Info]: Connected to the conference {self.conference_id} message server")
 
             # 启动接收消息的任务
@@ -403,7 +421,9 @@ class ConferenceClient:
         while True:
             if self.on_meeting:
                 status = f'OnMeeting-{self.conference_id}'
+                # await self.video_test()
                 asyncio.run(self.video_test())
+                break
             else:
                 status = 'Free'
 

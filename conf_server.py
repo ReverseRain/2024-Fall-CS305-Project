@@ -5,6 +5,7 @@ from config import *
 import json
 import uuid
 import random
+import struct
 
 
 class ConferenceServer:
@@ -62,26 +63,46 @@ class ConferenceServer:
 
     async def handle_video(self,sock):
         try:
+            total_chunks=0
+            received_chunks={}
             while True:
                 print('what?')
-                data, addr = await sock.recvfrom()
-                print(data, addr)
-                sock.sendto(data, addr)
-                print('yes')
-                if not data:
-                    break
+                data, addr= await sock.recvfrom()
 
-                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
-                
-                if frame is None:
-                    print("Failed to decode frame.")
-                    continue
+                chunk_id = struct.unpack('I', data[:4])[0]
+                chunk_data = data[4:]
 
-                cv2.imshow('Received Frame', frame)
-                cv2.waitKey(1)
-                print('why')
+                received_chunks[chunk_id] = chunk_data
 
-                await self.broadcast_video(frame, sock)
+                if total_chunks == 0:
+                    total_chunks = chunk_id + 1
+
+                print(f"Received chunk {chunk_id + 1}/{total_chunks}")
+                print(received_chunks.keys())
+
+                sock.sendto(b'OK',addr)
+                print(addr)
+                print(len(received_chunks) ,total_chunks)
+
+                # 如果所有块都已经收到，进行重组
+                if len(received_chunks) == total_chunks:
+                    all_data = b''.join([received_chunks[i] for i in range(total_chunks)])
+
+                    frame = cv2.imdecode(np.frombuffer(all_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+                    if frame is None:
+                        print("Failed to decode frame.")
+                    else:
+                        cv2.imshow('Received Frame', frame)
+                        cv2.waitKey(1)
+
+                    received_chunks.clear()
+                    total_chunks = 0
+
+                # print(data)
+                # sock.sendto(data, addr)
+
+                    await self.broadcast_video(frame, sock)
 
         except Exception as e:
             print(f"[Error]: Failed to handle video frame. Error: {e}")
@@ -181,6 +202,9 @@ class ConferenceServer:
 
             self.video_server= await asyncudp.create_socket(local_addr=(self.conf_serve_ip, 0))
             self.data_serve_ports['video']=self.video_server.getsockname()[1]
+
+            video_task = asyncio.create_task(self.handle_video(self.video_server))
+            await asyncio.gather(video_task)
             
             print(f"[ConferenceServer]: Starting server at {self.conf_serve_ip}:{self.conf_serve_ports}")
             # Serve the server until it is stopped
@@ -230,7 +254,7 @@ class MainServer:
 
 
             await new_conference_server.wait_for_port_assignment()
-            print(new_conference_server.data_serve_ports['video'])
+            print('port',new_conference_server.data_serve_ports['video'])
             # 构造响应数据
             response_data = {
                 "status": "success",
