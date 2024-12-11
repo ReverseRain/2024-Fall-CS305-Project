@@ -1,3 +1,5 @@
+import wave
+
 import asyncudp
 
 from util import *
@@ -357,10 +359,25 @@ class ConferenceClient:
         reader, writer = self.conns['audio']
         print("[ConferenceClient]: Starting to send audio data...")
 
+        ##################### 打开WAV文件，用于保存音频数据
+        output_filename = 'output_audio.wav'
+        wf = wave.open(output_filename, 'wb')
+        ##############################################
+
         try:
+            ################################## 设置WAV文件的参数
+            wf.setnchannels(1)  # 单声道
+            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))  # 16-bit音频
+            wf.setframerate(16000)  # 采样率16kHz
+            ##############################################
             while self.on_mic:
                 # 从麦克风读取音频数据
                 audio_data = self.capture_voice()
+                # print(audio_data)
+
+                ##################### 将音频数据写入WAV文件
+                wf.writeframes(audio_data)
+                ##############################################
 
                 # 发送音频数据到服务器
                 writer.write(audio_data)
