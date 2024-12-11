@@ -3,7 +3,7 @@ import asyncio
 import json
 from config import *
 import struct
-import asyncudp
+
 
 
 class ConferenceClient:
@@ -22,13 +22,17 @@ class ConferenceClient:
 
         self.recv_data = None  # you may need to save received streamd data from other clients in conference
 
+
+        self.username=None
+        self.on_video=False
+
     async def create_conference(self):
         try:
             # 初始化连接
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server for creating a conference.")
 
-            self.start_conference()
+            
             # 构造创建会议的请求数据
             request_data = "create_conference"
 
@@ -55,6 +59,8 @@ class ConferenceClient:
             # 关闭连接
             writer.close()
             await writer.wait_closed()
+
+            await self.start_conference()
         except Exception as e:
             self.show_info(f"[Error]: Unable to create conference. Error: {e}")
 
@@ -67,7 +73,7 @@ class ConferenceClient:
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info(f"[Info]: Connected to the server to join conference with ID: {conference_id}.")
 
-            self.start_conference()
+            
             # 构造加入会议的请求数据
             request_data = f"join_conference {conference_id}"
             writer.write(request_data.encode('utf-8'))
@@ -94,6 +100,7 @@ class ConferenceClient:
             # 关闭连接
             writer.close()
             await writer.wait_closed()
+            await self.start_conference()
         except Exception as e:
             self.show_info(f"[Error]: Unable to join conference. Error: {e}")
 
@@ -172,7 +179,7 @@ class ConferenceClient:
 
             # 构造消息数据
             message_data = {
-                "sender": "name",
+                "sender": self.username,
                 "message": message
             }
             print("message_data: ", message_data)
@@ -192,7 +199,7 @@ class ConferenceClient:
         except Exception as e:
             self.show_info(f"[Error]: Failed to send message. Error: {e}")
 
-    async def receive_message(self):
+    async def receive_message(self,message_callback):
         """
         接收来自会议中的其他客户端的消息
         """
@@ -218,6 +225,7 @@ class ConferenceClient:
                 sender = message_data.get("sender")
                 message = message_data.get("message")
                 self.show_info(f"[New Message]-{sender}:{message}")
+                message_callback(sender, message)
 
             # 关闭连接
             # writer.close()
@@ -250,7 +258,7 @@ class ConferenceClient:
         running task: output received stream data
         '''
 
-    def start_conference(self):
+    async def start_conference(self):
         '''
         init conns when create or join a conference with necessary conference_info
         and
@@ -262,11 +270,21 @@ class ConferenceClient:
 
         try:
             if 'message' not in self.conns:
-                self.conns['message'] = asyncio.run(
-                    asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1]))
+                self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
             if 'video' not in self.conns:
-                self.conns['video'] = asyncudp.create_socket(
-                    remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1]))
+                self.conns['video'] = await asyncio.open_connection(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
+        #         connect = asyncio.get_event_loop().create_datagram_endpoint(
+        #     lambda: EchoUDPClientProtocol(),
+        #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
+        # )
+        #         transport, protocol = await connect
+        #         self.conns['video']=(transport,protocol)
+
+
+                
+            
+            
+            
 
             print(
                 f"[Info]: Connected to message server: {self.conf_server_addr['message']} and video server: {self.conf_server_addr['video']}")
@@ -321,26 +339,42 @@ class ConferenceClient:
             return
 
         try:
-            sock = self.conns['video']
 
-            while True:
+            reader, writer = self.conns['video']
+
+
+            while self.on_video:
                 screen_frame = capture_screen()
-                camera_frame = capture_camera()
+                #camera_frame = capture_camera()
 
                 # 压缩帧
                 compressed_screen = compress_image(screen_frame, format='JPEG', quality=85)
                 # compressed_camera = compress_image(camera_frame, format='JPEG', quality=85)
 
                 # print(compressed_screen.tell())
-                sock.sendto(compressed_screen)
+                
                 # writer.write(compressed_camera)
-                # await writer.drain()
+                frame_length = len(compressed_screen).to_bytes(4, 'big')
+                print(len(compressed_screen))
+                writer.write(frame_length + compressed_screen)
+                await writer.drain()
                 self.show_info(f"[Info]: sending video")
-                print(await sock.recvfrom())
+                await asyncio.sleep(5)
+            
+            writer.write(b'\x00\x00\x00\x00')
+            await writer.drain()
+            print("[Info]: Sent stop video signal.")
+                    
 
 
         except Exception as e:
             self.show_info(f"[Error]: Failed to send message. Error: {e}")
+            writer.write(b'\x00\x00\x00\x00')
+            await writer.drain()
+            print("[Info]: Sent stop video signal.")
+        
+       
+            
 
     async def receive_video(self):
         if not self.on_meeting:
@@ -472,6 +506,24 @@ class ConferenceClient:
 
                 if not recognized:
                     print(f'[Warn]: Unrecognized cmd_input {cmd_input}')
+
+class EchoUDPClientProtocol(asyncio.DatagramProtocol):
+    def __init__(self):
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        message = data.decode()
+        print(f"Received response: {message} from {addr}")
+        # 调用回调函数处理响应
+       
+
+    def error_received(self, exc):
+        print(f"Error received: {exc}")
+        self.transport.close()
+
 
 
 if __name__ == '__main__':

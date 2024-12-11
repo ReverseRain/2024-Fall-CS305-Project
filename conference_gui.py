@@ -19,6 +19,8 @@ class ConferenceApp:
         if not self.username:
             self.username = "Guest"  # 如果用户没有输入姓名，默认使用 "Guest"
 
+        self.client.username=self.username
+
         # self.master.withdraw()  # 隐藏主窗口
         self.hello_label = tk.Label(master, text=f"Hello {self.username}!", font=('Times New Roman', 14))
         self.hello_label.pack(anchor='n', padx=10, pady=10)
@@ -34,6 +36,7 @@ class ConferenceApp:
         self.join_meeting_button.pack(expand=True)
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
 
     def on_closing(self):
         if hasattr(self, 'meeting_window'):
@@ -43,18 +46,29 @@ class ConferenceApp:
 
     def create_meeting(self):
         # 创建会议
-        tmp=self.client.create_conference()
-        asyncio.run(tmp)
+        asyncio.create_task(self._async_create_meeting())
+        
 
+    async def _async_create_meeting(self):
+        # 执行异步创建会议
+        await self.client.create_conference()
+
+        # 在任务完成后进行后续逻辑
         if self.client.on_meeting:
             self.open_meeting_window(self.client.conference_id)
+            asyncio.create_task(self.run_receive_message())
 
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
         if conference_id:
-            asyncio.run(self.client.join_conference(conference_id))
-            if self.client.on_meeting:
-                self.open_meeting_window(conference_id)
+            asyncio.create_task(self._async_join_meeting(conference_id))
+            
+    async def _async_join_meeting(self,conference_id):
+
+        await self.client.join_conference(conference_id)
+        if self.client.on_meeting:
+            self.open_meeting_window(conference_id)
+            asyncio.create_task(self.run_receive_message())
 
     def on_closing_meeting_window(self):
         self.on_closing()
@@ -107,7 +121,7 @@ class ConferenceApp:
         self.microphone_button = tk.Button(button_frame, text="Mute Microphone", command=self.mute_microphone)
         self.microphone_button.pack(side=tk.LEFT, padx=10)
 
-        self.video_button = tk.Button(button_frame, text="Turn Off Video", command=self.turn_off_video)
+        self.video_button = tk.Button(button_frame, text="Turn On Video", command=self.turn_on_video)
         self.video_button.pack(side=tk.LEFT, padx=10)
 
         self.leave_button = tk.Button(button_frame, text="Leave Meeting", command=self.leave_meeting)
@@ -115,12 +129,29 @@ class ConferenceApp:
 
     def send_message(self):
         message = self.msg_entry.get()
-        # TODO 将消息发送到服务器，并且显示在消息显示框中
-        # asyncio.run(self.client.send_message(message))
+    
+        if not message.strip():
+            return  # 防止发送空消息
+        
         self.msg_display.config(state='normal')
         self.msg_display.insert(tk.END, "You: " + message + "\n")
         self.msg_display.config(state='disabled')
         self.msg_entry.delete(0, tk.END)
+        asyncio.create_task(self.client.send_message(message))
+
+    
+    async def run_receive_message(self):
+        """运行接收消息的逻辑"""
+        try:
+            await self.client.receive_message(self.display_message)
+        except Exception as e:
+            self.display_message("Error", f"Failed to receive messages. {e}")
+
+    def display_message(self, sender, message):
+        """在聊天框中显示消息"""
+        self.msg_display.config(state='normal')
+        self.msg_display.insert(tk.END, f"{sender}: {message}\n")
+        self.msg_display.config(state='disabled')
 
     def leave_meeting(self):
         # TODO
@@ -140,19 +171,28 @@ class ConferenceApp:
     def turn_off_video(self):
         # TODO
         self.video_button.config(text="Turn On Video", command=self.turn_on_video)
-        pass
+        self.client.on_video=False
+       
 
     def turn_on_video(self):
         # TODO
         self.video_button.config(text="Turn Off Video", command=self.turn_off_video)
-        pass
+        self.client.on_video=True
+        asyncio.create_task(self.client.send_video())
+        
+   
 
-    def run(self):
+    async def run(self):
         self.master.deiconify()  # 显示主窗口
-        self.master.mainloop()
+        #self.master.mainloop()
+        
+        while True:
+            self.master.update()
+            await asyncio.sleep(0.01)  # 避免阻塞事件循环
 
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = ConferenceApp(root)
-    app.run()
+    #app.run()
+    asyncio.run(app.run())

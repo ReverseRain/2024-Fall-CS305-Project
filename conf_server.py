@@ -1,10 +1,11 @@
 import asyncio
-import asyncudp
+
 from util import *
 from config import *
 import json
 import uuid
 import random
+import struct
 
 
 class ConferenceServer:
@@ -26,9 +27,7 @@ class ConferenceServer:
         """
         running task: receive sharing stream data from a client and decide how to forward them to the rest clients
         """
-    async def handle_video(self,):
-        pass
-
+    
     async def handle_audio(self,):
         pass
 
@@ -60,36 +59,54 @@ class ConferenceServer:
             writer.close()
             await writer.wait_closed()
 
-    async def handle_video(self,sock):
+    async def handle_video(self,reader,writer):
+        client_addr = writer.get_extra_info('peername')
+        window_name = f"Client-{client_addr}"
         try:
             while True:
-                print('what?')
-                data, addr = await sock.recvfrom()
-                print(data, addr)
-                sock.sendto(data, addr)
-                print('yes')
-                if not data:
-                    break
+                length_data = await reader.readexactly(4)
+                frame_length = int.from_bytes(length_data, 'big')
 
+                print(f"[{window_name}] Expected frame length: {frame_length}")
+
+
+                if frame_length==0:
+                    print(f"[{window_name}]: Received stop signal. Closing display.")
+                    cv2.destroyWindow(window_name)
+                    continue
+
+                # 确保读取到完整的帧数据
+                data = await reader.readexactly(frame_length)
                 frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
                 
                 if frame is None:
-                    print("Failed to decode frame.")
+                    print(f"[{window_name}]: Failed to decode frame.")
                     continue
 
-                cv2.imshow('Received Frame', frame)
+                
+
+                cv2.imshow(window_name, frame)
                 cv2.waitKey(1)
-                print('why')
+                
 
-                await self.broadcast_video(frame, sock)
+                
 
+                
+
+                #await self.broadcast_video(frame, sock)
+        except asyncio.IncompleteReadError:
+            print(f"[{window_name}]: Client disconnected abruptly.")
         except Exception as e:
-            print(f"[Error]: Failed to handle video frame. Error: {e}")
+            print(f"[Error]: Failed to handle video for {window_name}. Error: {e}")
+            cv2.destroyAllWindows()
 
-        # finally:
-        #     print(f"[ConferenceServer-{self.conference_id}]: Closing connection.")
-        #     writer.close()
-        #     await writer.wait_closed()
+        finally:
+            print(f"[ConferenceServer-{self.conference_id}]: Closing connection.")
+            writer.close()
+            await writer.wait_closed()
+            cv2.destroyAllWindows()
+        
+
 
             
 
@@ -133,15 +150,15 @@ class ConferenceServer:
 
         try:
             # 为不同的数据类型创建异步任务来处理
-            # message_task = asyncio.create_task(self.handle_message(reader, writer))
-            
+            message_task = asyncio.create_task(self.handle_message(reader, writer))
+            #video_task = asyncio.create_task(self.handle_video(reader, writer))
             # # 这里创建任务来处理视频和音频流的接收
             # video_task = asyncio.create_task(self.handle_video_audio_stream('screen'))
-            video_task = asyncio.create_task(self.handle_video(self.video_server))
+            #video_task = asyncio.create_task(self.handle_video(self.video_server))
             # audio_task = asyncio.create_task(self.handle_video_audio_stream('audio'))
 
             # 等待任务执行并并行处理
-            # await asyncio.gather(video_task)
+            await asyncio.gather(message_task)
 
         except Exception as e:
             print(f"[Error]: Error while handling client: {e}")
@@ -176,13 +193,27 @@ class ConferenceServer:
         start the ConferenceServer and necessary running tasks to handle clients in this conference
         '''
         async def start_server():
+            #main server TCP . handle request  message
             self.conference_server = await asyncio.start_server(self.handle_client, self.conf_serve_ip, 0)
             self.conf_serve_ports = self.conference_server.sockets[0].getsockname()[1]
-
-            self.video_server= await asyncudp.create_socket(local_addr=(self.conf_serve_ip, 0))
-            self.data_serve_ports['video']=self.video_server.getsockname()[1]
             
-            print(f"[ConferenceServer]: Starting server at {self.conf_serve_ip}:{self.conf_serve_ports}")
+            #创建处理视频的udp socket
+            '''
+            transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+                lambda: EchoUDPProtocol(self),
+                local_addr=(self.conf_serve_ip, 0)
+            )
+            self.video_server=transport
+
+            self.data_serve_ports['video']=transport.get_extra_info('sockname')[1]
+            '''
+
+
+            self.video_server=await asyncio.start_server(self.handle_video, self.conf_serve_ip, 0)
+            self.data_serve_ports['video']=self.video_server.sockets[0].getsockname()[1]
+
+            print(f"[ConferenceServer]: Starting main server at {self.conf_serve_ip}:{self.conf_serve_ports}")
+            print(f"[ConferenceServer]: Starting video server at {self.conf_serve_ip}:{self.data_serve_ports['video']}")
             # Serve the server until it is stopped
             async with self.conference_server:
                 await self.conference_server.serve_forever() 
@@ -194,8 +225,62 @@ class ConferenceServer:
         """
         等待端口号分配完成
         """
-        while self.conf_serve_ports is None:
+        while self.conf_serve_ports  is None:
             await asyncio.sleep(0.1)  # 等待端口分配，避免过多占用 CPU 时间
+
+#udp 处理视频
+class EchoUDPProtocol(asyncio.DatagramProtocol):
+    def __init__(self,server):
+        self.transport = None
+        self.received_chunks = {}  # 用于存储接收到的块
+        self.total_chunks = 0
+        self.main_server=server
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        print('Received a chunk from', addr)
+
+        # 如果还没有接收到文件头，先接收文件头
+        if self.total_chunks == 0:
+            # 文件头包含总块数，4字节
+            self.total_chunks = struct.unpack('I', data)[0]
+            print(f"Received header: total chunks = {self.total_chunks}")
+            return  # 文件头接收完后返回，等待后续的块数据
+
+        # 获取块序号（4字节）和数据块
+        chunk_id = struct.unpack('I', data[:4])[0]
+        chunk_data = data[4:]
+
+        # 存储接收到的数据块
+        self.received_chunks[chunk_id] = chunk_data
+
+        print(f"Received chunk {chunk_id + 1}/{self.total_chunks} ({len(chunk_data)} bytes)")
+
+        # 如果所有块都已经收到，进行重组
+        if len(self.received_chunks) == self.total_chunks:
+            asyncio.get_event_loop().run_in_executor(None, self.handle_data)
+            
+
+            # 重置状态，为下一个图像准备
+            
+    def handle_data(self):
+        # 将所有块按序号排序并合并
+        print(f'handle data total_chunks= {self.total_chunks}')
+
+        all_data = b''.join([self.received_chunks[i] for i in range(self.total_chunks)])
+
+        # 使用 OpenCV 解码图像
+        frame = cv2.imdecode(np.frombuffer(all_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+        if frame is None:
+            print("Failed to decode frame.")
+        else:
+            cv2.imshow('Received Frame', frame)
+            cv2.waitKey(1)
+        self.received_chunks.clear()
+        self.total_chunks = 0
 
 
 
@@ -227,6 +312,7 @@ class MainServer:
             new_conference_server.conference_id = conference_id
             self.conference_servers[conference_id] = new_conference_server
             asyncio.create_task(new_conference_server.start())
+            print('here')
 
 
             await new_conference_server.wait_for_port_assignment()
