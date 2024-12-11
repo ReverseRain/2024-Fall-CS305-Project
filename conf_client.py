@@ -28,6 +28,9 @@ class ConferenceClient:
 
     async def create_conference(self):
         try:
+            if self.on_meeting:
+                self.show_info("[Info]: You are on meeting CANNOT create a conference.")
+                return
             # 初始化连接
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server for creating a conference.")
@@ -69,6 +72,9 @@ class ConferenceClient:
         Join a conference: send join-conference request with given conference_id, and obtain necessary data to
         """
         try:
+            if self.on_meeting:
+                self.show_info("[Info]: You are on meeting CANNOT join a conference.")
+                return
             # 初始化连接
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info(f"[Info]: Connected to the server to join conference with ID: {conference_id}.")
@@ -109,9 +115,17 @@ class ConferenceClient:
         quit your on-going conference
         """
         try:
+            if not self.on_meeting:
+                self.show_info("[Info]: You are not on meeting ." )
+                return
             # 初始化连接
-            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
-            self.show_info("[Info]: Connected to the server to quit the conference.")
+            reader, writer = self.conns['message']
+
+            # 构造消息数据
+            message_data = {
+                "sender": self.username,
+                "message": message
+            }
 
             request_data = "quit_conference " + str(self.conference_id)
 
@@ -137,6 +151,9 @@ class ConferenceClient:
         cancel your on-going conference (when you are the conference manager): ask server to close all clients
         """
         try:
+            if not self.on_meeting:
+                self.show_info("[Info]: You are not on meeting ." )
+                return
             # 初始化连接
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server to cancel the conference.")

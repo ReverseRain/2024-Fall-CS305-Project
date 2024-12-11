@@ -3,7 +3,7 @@ from tkinter import simpledialog, scrolledtext
 import asyncio
 from conf_client import ConferenceClient
 from config import *
-
+import datetime 
 
 class ConferenceApp:
     def __init__(self, master):
@@ -136,8 +136,11 @@ class ConferenceApp:
         if not message.strip():
             return  # 防止发送空消息
         
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S") 
+    
         self.msg_display.config(state='normal')
-        self.msg_display.insert(tk.END, "You: " + message + "\n")
+        # 在显示的消息前加上时间戳
+        self.msg_display.insert(tk.END, f"[{timestamp}] You: {message}\n")
         self.msg_display.config(state='disabled')
         self.msg_entry.delete(0, tk.END)
         asyncio.create_task(self.client.send_message(message))
@@ -152,8 +155,10 @@ class ConferenceApp:
 
     def display_message(self, sender, message):
         """在聊天框中显示消息"""
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S") 
         self.msg_display.config(state='normal')
-        self.msg_display.insert(tk.END, f"{sender}: {message}\n")
+        
+        self.msg_display.insert(tk.END, f"[{timestamp}] {sender}: {message}\n")
         self.msg_display.config(state='disabled')
 
     def leave_meeting(self):
