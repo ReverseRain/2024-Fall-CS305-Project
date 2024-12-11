@@ -49,8 +49,9 @@ class ConferenceApp:
 
     async def _async_create_meeting(self):
         # 执行异步创建会议
+        # print(f'on meeting1 {self.client.on_meeting}')
         await self.client.create_conference()
-
+        # print(f'on meeting2 {self.client.on_meeting}')
         # 在任务完成后进行后续逻辑
         if self.client.on_meeting:
             self.open_meeting_window(self.client.conference_id)
@@ -69,10 +70,18 @@ class ConferenceApp:
         await self.client.join_conference(conference_id)
         if self.client.on_meeting:
             self.open_meeting_window(conference_id)
+<<<<<<< HEAD
             await asyncio.create_task(self.run_receive_message())
             await asyncio.create_task(self.client.receive_audio())
             await asyncio.create_task(self.client.receive_video())
             
+=======
+            self.client.setup_audio()
+            asyncio.create_task(self.run_receive_message())
+            asyncio.create_task(self.client.receive_audio())
+            asyncio.create_task(self.client.receive_video())
+
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
 
 #60198  60208
     def on_closing_meeting_window(self):

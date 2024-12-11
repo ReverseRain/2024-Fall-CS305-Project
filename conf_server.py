@@ -21,10 +21,15 @@ class ConferenceServer:
         self.client_conns = []  # 维护所有在会议中的client
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
+<<<<<<< HEAD
         self.video_server=None
         self.audio_server=None
         self.video_client_conns=[]
         self.audio_client_conns=[]
+=======
+        self.video_server = None
+        self.audio_server = None
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
 
     async def handle_data(self, reader, writer, data_type):
         """
@@ -32,8 +37,15 @@ class ConferenceServer:
         """
 
     async def handle_audio(self, reader, writer):
+<<<<<<< HEAD
         self.audio_client_conns.append((reader,writer))
         
+=======
+        """
+        addr: ('ip', port)
+        todo
+        """
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
         # data=await reader.read(1024)
         # while data:
         #     await self.broadcast_audio(data, addr)
@@ -254,7 +266,9 @@ class ConferenceServer:
 
             #######################################################
             self.video_server = await asyncio.start_server(self.handle_video, self.conf_serve_ip, 0)
+            self.audio_server = await asyncio.start_server(self.handle_audio, self.conf_serve_ip, 0)
             self.data_serve_ports['video'] = self.video_server.sockets[0].getsockname()[1]
+            self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
 
             self.audio_server = await asyncio.start_server(self.handle_audio, self.conf_serve_ip, 0)
             self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
@@ -386,7 +400,10 @@ class MainServer:
                     "conference_message_port": new_conference_server.conf_serve_ports,
                     "conference_video_port": new_conference_server.data_serve_ports['video'],
                     "conference_audio_port": new_conference_server.data_serve_ports['audio']
+<<<<<<< HEAD
                     
+=======
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
                     # "server_ip": self.server_ip,
                     # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                 }
@@ -423,7 +440,8 @@ class MainServer:
                         "conference_id": conference_id,
                         "conference_ip": self.server_ip,
                         "conference_message_port": self.conference_servers[conference_id].conf_serve_ports,
-                        "conference_video_port": self.conference_servers[conference_id].data_serve_ports['video']
+                        "conference_video_port": self.conference_servers[conference_id].data_serve_ports['video'],
+                        "conference_audio_port": self.conference_servers[conference_id].data_serve_ports['audio']
                         # "server_ip": self.server_ip,
                         # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                     }

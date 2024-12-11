@@ -1,4 +1,10 @@
+<<<<<<< HEAD
 
+=======
+import wave
+
+import asyncudp
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
 
 from util import *
 import asyncio
@@ -27,7 +33,17 @@ class ConferenceClient:
         self.on_video = False
 
         self.on_mic = False
+<<<<<<< HEAD
    
+=======
+
+    def setup_audio(self):
+        """初始化音频流"""
+        self.audio = pyaudio.PyAudio()
+        self.streamin = self.audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+        self.streamout = self.audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
+
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
     async def create_conference(self):
         try:
             if self.on_meeting:
@@ -108,9 +124,10 @@ class ConferenceClient:
                 self.show_info(f"[Error]: Failed to join conference. Reason: {response_data.get('message')}")
 
             # 关闭连接
+            await self.start_conference()
             writer.close()
             await writer.wait_closed()
-            await self.start_conference()
+
         except Exception as e:
             self.show_info(f"[Error]: Unable to join conference. Error: {e}")
 
@@ -359,16 +376,43 @@ class ConferenceClient:
         if not self.conns['audio']:
             self.show_info("[Error]: Not connected to the server.")
             return
+<<<<<<< HEAD
         self.on_mic=True
         
+=======
+        # stream=self.audio.open(format=pyaudio.paInt16,
+        #                         channels=0,
+        #                         rate=16000,
+        #                         input=True,
+        #                         frames_per_buffer=CHUNK)
+        reader, writer = self.conns['audio']
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
         print("[ConferenceClient]: Starting to send audio data...")
 
+        ##################### 打开WAV文件，用于保存音频数据
+        output_filename = 'output_audio.wav'
+        wf = wave.open(output_filename, 'wb')
+        ##############################################
+
         try:
+<<<<<<< HEAD
 
             reader, writer = self.conns['audio']
+=======
+            ################################## 设置WAV文件的参数
+            wf.setnchannels(1)  # 单声道
+            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))  # 16-bit音频
+            wf.setframerate(16000)  # 采样率16kHz
+            ##############################################
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
             while self.on_mic:
                 # 从麦克风读取音频数据
-                audio_data = capture_voice()
+                audio_data = self.capture_voice()
+                # print(audio_data)
+
+                ##################### 将音频数据写入WAV文件
+                wf.writeframes(audio_data)
+                ##############################################
 
                 # 发送音频数据到服务器
                 writer.write(audio_data)
@@ -379,12 +423,19 @@ class ConferenceClient:
             print(f"[ConferenceClient]: Error while sending audio: {e}")
         finally:
             print("[ConferenceClient]: Closing audio stream")
+<<<<<<< HEAD
             streamin.stop_stream()
             streamin.close()
+=======
+            self.streamin.stop_stream()
+            self.streamin.close()
+            self.audio.terminate()
+>>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
             writer.close()
             await writer.wait_closed()
 
-
+    def capture_voice(self):
+        return self.streamin.read(CHUNK)
     async def receive_audio(self):
         """接收来自其他客户端的音频数据并播放"""
         if not self.on_meeting:
@@ -409,20 +460,6 @@ class ConferenceClient:
     def play_audio(self, audio_data):
         """播放接收到的音频数据"""
         self.streamout.write(audio_data)  # 播放音频
-
-    async def start_audio(self):
-        loop = asyncio.get_event_loop()
-
-        # 创建音频发送的UDP端点
-        self.audio_transport, self.audio_protocol = await loop.create_datagram_endpoint(
-            lambda: AudioUDPProtocol(self),
-            remote_addr=self.server_addr  # 服务器地址（IP, PORT）
-        )
-
-        # 启动音频发送和接收任务
-        self.setup_audio()
-        await asyncio.create_task(self.send_audio())
-        await asyncio.create_task(self.receive_audio())
 
     async def send_video(self):
         if not self.on_meeting:
