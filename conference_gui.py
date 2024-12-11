@@ -98,7 +98,7 @@ class ConferenceApp:
         self.video_area.pack()
 
         # 聊天窗区域
-        chat_label = tk.Label(frame_right, text="Chat", font=('Helvetica', 16))
+        chat_label = tk.Label(frame_right, text=f'{self.username}\'s Chat', font=('Helvetica', 16))
         chat_label.pack(side=tk.TOP, pady=10)
         self.msg_scroll = tk.Scrollbar(frame_right, orient="vertical")
         self.msg_scroll.pack(side=tk.RIGHT, fill=tk.Y)
