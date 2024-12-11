@@ -1,4 +1,4 @@
-import asyncudp
+
 
 from util import *
 import asyncio
@@ -27,13 +27,7 @@ class ConferenceClient:
         self.on_video = False
 
         self.on_mic = False
-
-    def setup_audio(self):
-        """初始化音频流"""
-        self.audio = pyaudio.PyAudio()
-        self.streamin = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-        self.streamout = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
-
+   
     async def create_conference(self):
         try:
             if self.on_meeting:
@@ -365,15 +359,13 @@ class ConferenceClient:
         if not self.conns['audio']:
             self.show_info("[Error]: Not connected to the server.")
             return
-        stream=self.audio.open(format=pyaudio.paInt16,
-                                channels=1,
-                                rate=16000,
-                                input=True,
-                                frames_per_buffer=CHUNK)
-        reader, writer = self.conns['audio']
+        self.on_mic=True
+        
         print("[ConferenceClient]: Starting to send audio data...")
 
         try:
+
+            reader, writer = self.conns['audio']
             while self.on_mic:
                 # 从麦克风读取音频数据
                 audio_data = capture_voice()
@@ -381,13 +373,14 @@ class ConferenceClient:
                 # 发送音频数据到服务器
                 writer.write(audio_data)
                 await writer.drain()
+                self.show_info(f"[Info]: sending audio len {len(audio_data)}")
+                await asyncio.sleep(0.01)
         except Exception as e:
             print(f"[ConferenceClient]: Error while sending audio: {e}")
         finally:
             print("[ConferenceClient]: Closing audio stream")
-            stream.stop_stream()
-            stream.close()
-            self.audio.terminate()
+            streamin.stop_stream()
+            streamin.close()
             writer.close()
             await writer.wait_closed()
 
@@ -401,12 +394,17 @@ class ConferenceClient:
         if not self.conns['audio']:
             self.show_info("[Error]: Not connected to the audio server.")
             return
+        try:
+            reader, writer = self.conns['audio']
+            self.show_info("[Info]: Listening for incoming audio frames.")
 
-        while self.on_meeting:
-            if self.recv_data:
-                # 播放音频数据
-                self.play_audio(self.recv_data)
-            await asyncio.sleep(0.01)
+            while True:
+                audio_data=reader.readexactly(2048)
+                    # 播放音频数据
+                streamout.write(audio_data)
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            self.show_info(f"[Error]: Failed to receive audio frame. Error: {e}")
 
     def play_audio(self, audio_data):
         """播放接收到的音频数据"""

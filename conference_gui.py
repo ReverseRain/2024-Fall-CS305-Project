@@ -55,13 +55,9 @@ class ConferenceApp:
         if self.client.on_meeting:
             self.open_meeting_window(self.client.conference_id)
             asyncio.create_task(self.run_receive_message())
-<<<<<<< HEAD
-            asyncio.create_task(self.client.receive_video())
-=======
             asyncio.create_task(self.client.receive_audio())
             asyncio.create_task(self.client.receive_video())
-            self.client.setup_audio()
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
+            
 
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
@@ -73,15 +69,10 @@ class ConferenceApp:
         await self.client.join_conference(conference_id)
         if self.client.on_meeting:
             self.open_meeting_window(conference_id)
-<<<<<<< HEAD
-            asyncio.create_task(self.run_receive_message())
-            asyncio.create_task(self.client.receive_video())
-=======
             await asyncio.create_task(self.run_receive_message())
             await asyncio.create_task(self.client.receive_audio())
             await asyncio.create_task(self.client.receive_video())
-            self.client.setup_audio()
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
+            
 
 #60198  60208
     def on_closing_meeting_window(self):
@@ -146,13 +137,9 @@ class ConferenceApp:
 
         if not message.strip():
             return  # 防止发送空消息
-<<<<<<< HEAD
         
         timestamp = datetime.datetime.now().strftime("%H:%M:%S") 
     
-=======
-
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
         self.msg_display.config(state='normal')
         # 在显示的消息前加上时间戳
         self.msg_display.insert(tk.END, f"[{timestamp}] You: {message}\n")

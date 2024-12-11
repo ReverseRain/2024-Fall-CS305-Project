@@ -21,54 +21,47 @@ class ConferenceServer:
         self.client_conns = []  # 维护所有在会议中的client
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
-<<<<<<< HEAD
         self.video_server=None
+        self.audio_server=None
         self.video_client_conns=[]
-=======
-        self.video_server = None
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
+        self.audio_client_conns=[]
 
     async def handle_data(self, reader, writer, data_type):
         """
         running task: receive sharing stream data from a client and decide how to forward them to the rest clients
         """
 
-    async def handle_audio(self, reader, writer, addr):
-        """
-        addr: ('ip', port)
-        todo
-        """
+    async def handle_audio(self, reader, writer):
+        self.audio_client_conns.append((reader,writer))
+        
         # data=await reader.read(1024)
         # while data:
         #     await self.broadcast_audio(data, addr)
         #     data = await reader.read(1024)
         addr = writer.get_extra_info('peername')
-        print(f"[ConferenceServer]: Audio data received from {addr}")
+        print(f"[ConferenceServer]: Audio data receiving from {addr}")
 
-        while True:
-            try:
+        
+        try:
+            while True:
                 # 接收音频数据
-                data = await reader.read(1024)
+                data = await reader.readexactly(2048)
                 if not data:
                     break  # 如果没有数据，退出循环
                 print(f"[ConferenceServer]: Audio data received: {len(data)} bytes")
+                await self.broadcast_audio(data,writer)
+                
+        except asyncio.IncompleteReadError:
+            print(f"Client disconnected abruptly.")
+        except Exception as e:
+            print(f"[ConferenceServer]: Error while handling audio: {e}")
+        finally:
 
-                # 将接收到的数据转发给其他客户端
-                for client_conn in self.client_conns:
-                    if client_conn != writer:  # 不发给自己
-                        client_conn.write(data)
-                        await client_conn.drain()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"[ConferenceServer]: Error while handling audio: {e}")
-                break
-
-        # 关闭连接
-        print(f"[ConferenceServer]: Closing audio connection from {addr}")
-        self.client_conns.remove(writer)
-        writer.close()
-        await writer.wait_closed()
+            # 关闭连接
+            print(f"[ConferenceServer]: Closing audio connection from {addr}")
+            self.client_conns.remove(writer)
+            writer.close()
+            await writer.wait_closed()
 
     async def handle_message(self, reader, writer):
         """
@@ -98,12 +91,8 @@ class ConferenceServer:
             writer.close()
             await writer.wait_closed()
 
-<<<<<<< HEAD
     async def handle_video(self,reader,writer):
         self.video_client_conns.append((reader,writer))
-=======
-    async def handle_video(self, reader, writer):
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
         client_addr = writer.get_extra_info('peername')
         print(f"Client-{client_addr}")
         window_name = f"Client-{client_addr}"
@@ -114,7 +103,6 @@ class ConferenceServer:
 
                 print(f"[{window_name}] Expected frame length: {receive_len}")
 
-<<<<<<< HEAD
 
                 # if frame_length==0:
                 #     print(f"[{window_name}]: Received stop signal. Closing display.")
@@ -136,23 +124,6 @@ class ConferenceServer:
                 # cv2.imshow(window_name, frame)
                 # cv2.waitKey(1)
 
-=======
-                if frame_length == 0:
-                    print(f"[{window_name}]: Received stop signal. Closing display.")
-                    cv2.destroyWindow(window_name)
-                    continue
-
-                # 确保读取到完整的帧数据
-                data = await reader.readexactly(frame_length)
-                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
-
-                if frame is None:
-                    print(f"[{window_name}]: Failed to decode frame.")
-                    continue
-
-                cv2.imshow(window_name, frame)
-                cv2.waitKey(1)
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
 
                 # await self.broadcast_video(frame, sock)
         except asyncio.IncompleteReadError:
@@ -178,7 +149,6 @@ class ConferenceServer:
                     await writer.drain()
                 except Exception as e:
                     print(f"[Error]: Failed to send message to client: {e}")
-<<<<<<< HEAD
     
     async def broadcast_video(self, packet, sock):
 
@@ -192,28 +162,17 @@ class ConferenceServer:
                 print(f"[Error]: Failed to send video to client: {e}")
             
                 
-=======
 
-    async def broadcast_audio(self, audio, addr):
-        for client in self.client_conns:
-            if client.get_extra_info('sockname') == addr:
-                continue
-            client[1].write(audio)
-            await client[1].drain()
-            # client.sendto(audio, client.get_extra_info('sockname'))
-
-    async def broadcast_video(self, frame, sock):
-
-        # 遍历所有客户端连接
-        for port in self.data_serve_ports:
-            if port != sock.sockets[0].getsockname()[1]:
+    async def broadcast_audio(self, audio, sock):
+        for reader, writer in self.audio_client_conns:
+            if writer != sock:
                 try:
-                    # 压缩视频帧并发送
-                    compressed_frame = compress_image(frame, format='JPEG', quality=85)
-                    sock.sendto(compressed_frame, self.conf_serve_ip)
+                    writer.write(audio)
+                    await writer.drain()
                 except Exception as e:
-                    print(f"[Error]: Failed to send frame to client: {e}")
->>>>>>> 718696b898fc2cfb02d22310b3fa5dfccf10797d
+                    print(f"[Error]: Failed to send message to client: {e}")
+
+    
 
     async def handle_client(self, reader, writer):
         """
@@ -223,34 +182,26 @@ class ConferenceServer:
         print(f"[ConferenceServer]: New client connected from {addr}")
 
         # 添加客户端连接到会议
-        self.client_conns.append((reader, writer))
+        self.client_conns.append((reader,writer))
 
         try:
             # 为不同的数据类型创建异步任务来处理
-            # message_task = asyncio.create_task(self.handle_message(reader, writer))
-            # video_task = asyncio.create_task(self.handle_video(reader, writer))
+            message_task = asyncio.create_task(self.handle_message(reader, writer))
+            #video_task = asyncio.create_task(self.handle_video(reader, writer))
             # # 这里创建任务来处理视频和音频流的接收
             # video_task = asyncio.create_task(self.handle_video_audio_stream('screen'))
-            # video_task = asyncio.create_task(self.handle_video(self.video_server))
+            #video_task = asyncio.create_task(self.handle_video(self.video_server))
             # audio_task = asyncio.create_task(self.handle_video_audio_stream('audio'))
-            # audio_task = asyncio.create_task(self.handle_audio(reader,writer,addr))
 
             # 等待任务执行并并行处理
-            # await asyncio.gather(message_task, audio_task)
-            while True:
-                data = await reader.read(100)
-                if not data:
-                    break
-                # 处理客户端请求，包含音频传输等
-                if data == b'audio':
-                    await self.handle_audio(reader, writer)
+            await asyncio.gather(message_task)
 
         except Exception as e:
             print(f"[Error]: Error while handling client: {e}")
         finally:
             # 客户端断开时移除连接
             print(f"[ConferenceServer]: Client disconnected from {addr}")
-            self.client_conns.remove((reader, writer))
+            self.client_conns.remove((reader,writer))
             writer.close()
             await writer.wait_closed()
 
@@ -305,8 +256,12 @@ class ConferenceServer:
             self.video_server = await asyncio.start_server(self.handle_video, self.conf_serve_ip, 0)
             self.data_serve_ports['video'] = self.video_server.sockets[0].getsockname()[1]
 
+            self.audio_server = await asyncio.start_server(self.handle_audio, self.conf_serve_ip, 0)
+            self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
+
             print(f"[ConferenceServer]: Starting main server at {self.conf_serve_ip}:{self.conf_serve_ports}")
             print(f"[ConferenceServer]: Starting video server at {self.conf_serve_ip}:{self.data_serve_ports['video']}")
+            print(f"[ConferenceServer]: Starting audio server at {self.conf_serve_ip}:{self.data_serve_ports['audio']}")
             # Serve the server until it is stopped
             async with self.conference_server:
                 await self.conference_server.serve_forever()
@@ -429,7 +384,9 @@ class MainServer:
                     "conference_id": conference_id,
                     "conference_ip": self.server_ip,
                     "conference_message_port": new_conference_server.conf_serve_ports,
-                    "conference_video_port": new_conference_server.data_serve_ports['video']
+                    "conference_video_port": new_conference_server.data_serve_ports['video'],
+                    "conference_audio_port": new_conference_server.data_serve_ports['audio']
+                    
                     # "server_ip": self.server_ip,
                     # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                 }
