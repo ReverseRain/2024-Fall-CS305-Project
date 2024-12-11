@@ -22,13 +22,14 @@ class ConferenceServer:
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
         self.video_server = None
+        self.audio_server = None
 
     async def handle_data(self, reader, writer, data_type):
         """
         running task: receive sharing stream data from a client and decide how to forward them to the rest clients
         """
 
-    async def handle_audio(self, reader, writer, addr):
+    async def handle_audio(self, reader, writer):
         """
         addr: ('ip', port)
         todo
@@ -252,7 +253,9 @@ class ConferenceServer:
 
             #######################################################
             self.video_server = await asyncio.start_server(self.handle_video, self.conf_serve_ip, 0)
+            self.audio_server = await asyncio.start_server(self.handle_audio, self.conf_serve_ip, 0)
             self.data_serve_ports['video'] = self.video_server.sockets[0].getsockname()[1]
+            self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
 
             print(f"[ConferenceServer]: Starting main server at {self.conf_serve_ip}:{self.conf_serve_ports}")
             print(f"[ConferenceServer]: Starting video server at {self.conf_serve_ip}:{self.data_serve_ports['video']}")
@@ -378,7 +381,8 @@ class MainServer:
                     "conference_id": conference_id,
                     "conference_ip": self.server_ip,
                     "conference_message_port": new_conference_server.conf_serve_ports,
-                    "conference_video_port": new_conference_server.data_serve_ports['video']
+                    "conference_video_port": new_conference_server.data_serve_ports['video'],
+                    "conference_audio_port": new_conference_server.data_serve_ports['audio']
                     # "server_ip": self.server_ip,
                     # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                 }
@@ -415,7 +419,8 @@ class MainServer:
                         "conference_id": conference_id,
                         "conference_ip": self.server_ip,
                         "conference_message_port": self.conference_servers[conference_id].conf_serve_ports,
-                        "conference_video_port": self.conference_servers[conference_id].data_serve_ports['video']
+                        "conference_video_port": self.conference_servers[conference_id].data_serve_ports['video'],
+                        "conference_audio_port": self.conference_servers[conference_id].data_serve_ports['audio']
                         # "server_ip": self.server_ip,
                         # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                     }
