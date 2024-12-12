@@ -14,9 +14,9 @@ from config import *
 
 # audio setting
 FORMAT = pyaudio.paInt16
-# audio = pyaudio.PyAudio()
-# streamin = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-# streamout = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
+audio = pyaudio.PyAudio()
+streamin = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+streamout = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
 
 # print warning if no available camera
 cap = cv2.VideoCapture(0)
@@ -116,8 +116,8 @@ def capture_camera():
     return Image.fromarray(frame)
 
 
-# def capture_voice():
-#     return streamin.read(CHUNK)
+def capture_voice():
+    return streamin.read(CHUNK)
 
 
 def compress_image(image, format='JPEG', quality=85):

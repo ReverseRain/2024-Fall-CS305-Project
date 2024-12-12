@@ -4,6 +4,7 @@ import asyncio
 from conf_client import ConferenceClient
 from config import *
 import datetime 
+from concurrent.futures import ThreadPoolExecutor
 
 class ConferenceApp:
     def __init__(self, master):
@@ -37,11 +38,21 @@ class ConferenceApp:
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+        #self.executor = ThreadPoolExecutor(max_workers=4)  # 创建线程池，线程数视需求调整
+
     def on_closing(self):
         if hasattr(self, 'meeting_window'):
             self.meeting_window.destroy()
-        self.client.quit_conference()
+       # await self.client.quit_conference()
         self.master.destroy()
+
+    # async def handle_audio(self):
+    #     # 将接收和处理音频的任务放到线程池中
+    #     await asyncio.to_thread(self.client.receive_audio)
+
+    # async def handle_video(self):
+    #     # 将接收和处理视频的任务放到线程池中
+    #     await asyncio.to_thread(self.client.receive_video)
 
     def create_meeting(self):
         # 创建会议
@@ -59,6 +70,7 @@ class ConferenceApp:
             asyncio.create_task(self.client.receive_audio())
             asyncio.create_task(self.client.receive_video())
             
+            
 
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
@@ -70,18 +82,17 @@ class ConferenceApp:
         await self.client.join_conference(conference_id)
         if self.client.on_meeting:
             self.open_meeting_window(conference_id)
-<<<<<<< HEAD
-            await asyncio.create_task(self.run_receive_message())
-            await asyncio.create_task(self.client.receive_audio())
-            await asyncio.create_task(self.client.receive_video())
-            
-=======
-            self.client.setup_audio()
             asyncio.create_task(self.run_receive_message())
             asyncio.create_task(self.client.receive_audio())
             asyncio.create_task(self.client.receive_video())
-
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
+            # # 创建协程任务
+            # message_task = asyncio.create_task(self.run_receive_message())
+            # audio_task = asyncio.create_task(self.handle_audio())
+            # video_task = asyncio.create_task(self.handle_video())
+            
+            # # 并发运行
+            # await asyncio.gather(message_task, audio_task, video_task)
+            
 
 #60198  60208
     def on_closing_meeting_window(self):

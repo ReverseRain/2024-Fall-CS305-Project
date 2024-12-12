@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-
-=======
-import wave
-
-import asyncudp
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
 
 from util import *
 import asyncio
@@ -33,17 +26,7 @@ class ConferenceClient:
         self.on_video = False
 
         self.on_mic = False
-<<<<<<< HEAD
    
-=======
-
-    def setup_audio(self):
-        """初始化音频流"""
-        self.audio = pyaudio.PyAudio()
-        self.streamin = self.audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-        self.streamout = self.audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True, frames_per_buffer=CHUNK)
-
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
     async def create_conference(self):
         try:
             if self.on_meeting:
@@ -376,66 +359,39 @@ class ConferenceClient:
         if not self.conns['audio']:
             self.show_info("[Error]: Not connected to the server.")
             return
-<<<<<<< HEAD
         self.on_mic=True
         
-=======
-        # stream=self.audio.open(format=pyaudio.paInt16,
-        #                         channels=0,
-        #                         rate=16000,
-        #                         input=True,
-        #                         frames_per_buffer=CHUNK)
-        reader, writer = self.conns['audio']
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
         print("[ConferenceClient]: Starting to send audio data...")
 
-        ##################### 打开WAV文件，用于保存音频数据
-        output_filename = 'output_audio.wav'
-        wf = wave.open(output_filename, 'wb')
-        ##############################################
+        
 
         try:
-<<<<<<< HEAD
 
             reader, writer = self.conns['audio']
-=======
-            ################################## 设置WAV文件的参数
-            wf.setnchannels(1)  # 单声道
-            wf.setsampwidth(self.audio.get_sample_size(pyaudio.paInt16))  # 16-bit音频
-            wf.setframerate(16000)  # 采样率16kHz
-            ##############################################
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
             while self.on_mic:
+                if streamin.is_stopped():
+                    streamin.start_stream()
                 # 从麦克风读取音频数据
-                audio_data = self.capture_voice()
-                # print(audio_data)
-
-                ##################### 将音频数据写入WAV文件
-                wf.writeframes(audio_data)
-                ##############################################
-
+                audio_data =capture_voice()
                 # 发送音频数据到服务器
                 writer.write(audio_data)
                 await writer.drain()
-                self.show_info(f"[Info]: sending audio len {len(audio_data)}")
-                await asyncio.sleep(0.01)
+                #self.show_info(f"[Info]: sending audio len {len(audio_data)}")
+                await asyncio.sleep(0.005)
+            if streamin.is_active():
+                streamin.stop_stream()
+
+            
         except Exception as e:
             print(f"[ConferenceClient]: Error while sending audio: {e}")
         finally:
             print("[ConferenceClient]: Closing audio stream")
-<<<<<<< HEAD
-            streamin.stop_stream()
-            streamin.close()
-=======
-            self.streamin.stop_stream()
-            self.streamin.close()
-            self.audio.terminate()
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
-            writer.close()
-            await writer.wait_closed()
+            if streamin.is_active():
+                streamin.stop_stream()
+            
 
-    def capture_voice(self):
-        return self.streamin.read(CHUNK)
+
+    
     async def receive_audio(self):
         """接收来自其他客户端的音频数据并播放"""
         if not self.on_meeting:
@@ -448,18 +404,19 @@ class ConferenceClient:
         try:
             reader, writer = self.conns['audio']
             self.show_info("[Info]: Listening for incoming audio frames.")
+            if streamout.is_stopped():
+                streamout.start_stream()
 
             while True:
-                audio_data=reader.readexactly(2048)
+                audio_data=await reader.readexactly(2048)
+                #self.show_info(f"receive audio frames len {len(audio_data)}.")
                     # 播放音频数据
                 streamout.write(audio_data)
                 await asyncio.sleep(0.01)
         except Exception as e:
             self.show_info(f"[Error]: Failed to receive audio frame. Error: {e}")
 
-    def play_audio(self, audio_data):
-        """播放接收到的音频数据"""
-        self.streamout.write(audio_data)  # 播放音频
+    
 
     async def send_video(self):
         if not self.on_meeting:
@@ -505,7 +462,7 @@ class ConferenceClient:
                 packet = total_length_bytes + address_length_bytes +frame_length_bytes+ sender_addr_bytes + compressed_screen
                 writer.write(packet)
                 await writer.drain()
-                self.show_info(f"[Info]: sending video")
+                #self.show_info(f"[Info]: sending video")
                 await asyncio.sleep(0.03)
             
             #cv2.destroyWindow('self')
@@ -535,7 +492,7 @@ class ConferenceClient:
             writer.write(stop_packet)
             await writer.drain()
             print("[Info]: Sent stop video signal.")
-        
+
     async def receive_video(self):
         if not self.on_meeting:
             self.show_info("[Error]: You are not in a conference.")
@@ -550,17 +507,40 @@ class ConferenceClient:
             self.show_info("[Info]: Listening for incoming video frames.")
 
             self_addr = writer.get_extra_info('sockname')
-            self_addr_str = f"{self_addr[0]}:{self_addr[1]}" 
-           
+            self_addr_str = f"{self_addr[0]}:{self_addr[1]}"
 
-            # 存储每个发送者地址的帧索引
             sender_frames = {}
-            max_width, max_height = 1800, 1000  # 大窗口的尺寸
-            frame_width, frame_height = 900, 500  # 每个视频帧的显示区域大小
-            cols = max_width // frame_width  # 每行显示的帧数
-            # 创建一个大窗口，初始化黑色背景
-            canvas = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+            max_width, max_height = 1800, 1000  # 大窗口尺寸
+            frame_width, frame_height = 900, 500  # 每帧显示区域大小
+            cols = max_width // frame_width
 
+            # 在后台线程中处理数据和显示逻辑
+            def process_and_display_frame(frame_data, sender_addr_str):
+                frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if frame is None:
+                    print(f"Failed to decode frame from {sender_addr_str}.")
+                    return
+
+                # 更新发送者的帧
+                sender_frames[sender_addr_str] = frame
+
+                # 创建画布并绘制所有发送者的帧
+                canvas = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+                for i, (addr, frame) in enumerate(sender_frames.items()):
+                    row, col = divmod(i, cols)
+                    if row * frame_height >= max_height:
+                        break
+                    x, y = col * frame_width, row * frame_height
+                    resized_frame = cv2.resize(frame, (frame_width, frame_height))
+                    canvas[y:y + frame_height, x:x + frame_width] = resized_frame
+                    label = "YOU" if addr == self_addr_str else addr
+                    cv2.putText(canvas, label, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+                # 显示窗口
+                cv2.imshow("Video Conference", canvas)
+                cv2.waitKey(1)
+
+            # 接收视频帧的主循环
             while True:
                 # 读取总长度（4字节）
                 total_length_data = await reader.readexactly(4)
@@ -578,72 +558,27 @@ class ConferenceClient:
                 sender_addr_data = await reader.readexactly(address_length)
                 sender_addr_str = sender_addr_data.decode('utf-8')
 
-
+                # 处理停止信号
                 if frame_length == 0:
-                    print(f"[{sender_addr_str}]: Received stop signal. Removing from display.")
                     if sender_addr_str in sender_frames:
-                       
                         del sender_frames[sender_addr_str]
-                        canvas.fill(0)
-                        for i, (addr, frame) in enumerate(sender_frames.items()):
-                            row, col = divmod(i, cols)
-                            if row * frame_height >= max_height:  # 超过窗口大小则跳过
-                                break
-                            x, y = col * frame_width, row * frame_height
-                            canvas[y:y + frame_height, x:x + frame_width] = cv2.resize(frame, (frame_width, frame_height))
-                            # 显示发送者地址
-                            if addr==self_addr_str:
-                                cv2.putText(canvas, 'YOU', (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                            else:
-                                cv2.putText(canvas, addr, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                        # 显示大窗口
-                        cv2.imshow("Video Conference", canvas)
-                        cv2.waitKey(1)
                     continue
 
                 # 读取视频帧数据
                 frame_data = await reader.readexactly(frame_length)
-                if len(frame_data)==0:
-                    continue
-                frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-
-                if frame is None:
-                    print("Failed to decode frame.")
+                if not frame_data:
                     continue
 
-                # 如果是新发送者，添加到 sender_frames
-                #if sender_addr_str not in sender_frames:
-                sender_frames[sender_addr_str] = frame
-
-               
-
-                
-
-                # 绘制所有发送者的帧到大窗口
-                for i, (addr, frame) in enumerate(sender_frames.items()):
-                    row, col = divmod(i, cols)
-                    if row * frame_height >= max_height:  # 超过窗口大小则跳过
-                        break
-                    x, y = col * frame_width, row * frame_height
-                    canvas[y:y + frame_height, x:x + frame_width] = cv2.resize(frame, (frame_width, frame_height))
-                    # 显示发送者地址
-                    if addr==self_addr_str:
-                        cv2.putText(canvas, 'YOU', (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                    else:
-                        cv2.putText(canvas, addr, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-                # 显示大窗口
-                cv2.imshow("Video Conference", canvas)
-                cv2.waitKey(1)
+                # 将数据处理和显示逻辑放入线程池
+                await asyncio.to_thread(process_and_display_frame, frame_data, sender_addr_str)
 
         except Exception as e:
             self.show_info(f"[Error]: Failed to receive video frame. Error: {e}")
-
         finally:
             self.show_info("[Info]: Stopped receiving video frames.")
             cv2.destroyAllWindows()
 
-            
-
+        
     # async def receive_video(self):
     #     if not self.on_meeting:
     #         self.show_info("[Error]: You are not in a conference.")
@@ -657,15 +592,22 @@ class ConferenceClient:
     #         reader, writer = self.conns['video']
     #         self.show_info("[Info]: Listening for incoming video frames.")
 
-    #         # 存储每个发送者地址对应的窗口名称
-    #         sender_windows = {}
+    #         self_addr = writer.get_extra_info('sockname')
+    #         self_addr_str = f"{self_addr[0]}:{self_addr[1]}" 
+           
+
+    #         # 存储每个发送者地址的帧索引
+    #         sender_frames = {}
+    #         max_width, max_height = 1800, 1000  # 大窗口的尺寸
+    #         frame_width, frame_height = 900, 500  # 每个视频帧的显示区域大小
+    #         cols = max_width // frame_width  # 每行显示的帧数
+    #         # 创建一个大窗口，初始化黑色背景
+    #         canvas = np.zeros((max_height, max_width, 3), dtype=np.uint8)
 
     #         while True:
     #             # 读取总长度（4字节）
     #             total_length_data = await reader.readexactly(4)
     #             total_length = int.from_bytes(total_length_data, 'big')
-
-                
 
     #             # 读取地址长度（4字节）
     #             address_length_data = await reader.readexactly(4)
@@ -679,26 +621,61 @@ class ConferenceClient:
     #             sender_addr_data = await reader.readexactly(address_length)
     #             sender_addr_str = sender_addr_data.decode('utf-8')
 
-    #             if total_length==0:
-    #                 print(f"[{sender_addr_str}]: Received stop signal. Closing display.")
-    #                 cv2.destroyWindow(sender_windows[sender_addr_str])
+
+    #             if frame_length == 0:
+    #                 print(f"[{sender_addr_str}]: Received stop signal. Removing from display.")
+    #                 if sender_addr_str in sender_frames:
+                       
+    #                     del sender_frames[sender_addr_str]
+    #                     canvas.fill(0)
+    #                     for i, (addr, frame) in enumerate(sender_frames.items()):
+    #                         row, col = divmod(i, cols)
+    #                         if row * frame_height >= max_height:  # 超过窗口大小则跳过
+    #                             break
+    #                         x, y = col * frame_width, row * frame_height
+    #                         canvas[y:y + frame_height, x:x + frame_width] = cv2.resize(frame, (frame_width, frame_height))
+    #                         # 显示发送者地址
+    #                         if addr==self_addr_str:
+    #                             cv2.putText(canvas, 'YOU', (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    #                         else:
+    #                             cv2.putText(canvas, addr, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    #                     # 显示大窗口
+    #                     cv2.imshow("Video Conference", canvas)
+    #                     cv2.waitKey(1)
     #                 continue
 
-
     #             # 读取视频帧数据
-    #             frame_data = await reader.readexactly(frame_length) 
+    #             frame_data = await reader.readexactly(frame_length)
+    #             if len(frame_data)==0:
+    #                 continue
     #             frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
 
     #             if frame is None:
     #                 print("Failed to decode frame.")
     #                 continue
 
-    #             # 如果该发送者地址的窗口还没打开，创建一个新的窗口
-    #             if sender_addr_str not in sender_windows:
-    #                 sender_windows[sender_addr_str] = f"Received Frame from {sender_addr_str}"
+    #             # 如果是新发送者，添加到 sender_frames
+    #             #if sender_addr_str not in sender_frames:
+    #             sender_frames[sender_addr_str] = frame
 
-    #             # 显示该发送者的视频帧
-    #             cv2.imshow(sender_windows[sender_addr_str], frame)
+               
+
+                
+
+    #             # 绘制所有发送者的帧到大窗口
+    #             for i, (addr, frame) in enumerate(sender_frames.items()):
+    #                 row, col = divmod(i, cols)
+    #                 if row * frame_height >= max_height:  # 超过窗口大小则跳过
+    #                     break
+    #                 x, y = col * frame_width, row * frame_height
+    #                 canvas[y:y + frame_height, x:x + frame_width] = cv2.resize(frame, (frame_width, frame_height))
+    #                 # 显示发送者地址
+    #                 if addr==self_addr_str:
+    #                     cv2.putText(canvas, 'YOU', (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    #                 else:
+    #                     cv2.putText(canvas, addr, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    #             # 显示大窗口
+    #             cv2.imshow("Video Conference", canvas)
     #             cv2.waitKey(1)
 
     #     except Exception as e:
@@ -707,6 +684,10 @@ class ConferenceClient:
     #     finally:
     #         self.show_info("[Info]: Stopped receiving video frames.")
     #         cv2.destroyAllWindows()
+
+            
+
+   
 
 
     async def video_test(self):

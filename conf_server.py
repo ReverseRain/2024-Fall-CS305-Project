@@ -21,15 +21,10 @@ class ConferenceServer:
         self.client_conns = []  # 维护所有在会议中的client
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
-<<<<<<< HEAD
         self.video_server=None
         self.audio_server=None
         self.video_client_conns=[]
         self.audio_client_conns=[]
-=======
-        self.video_server = None
-        self.audio_server = None
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
 
     async def handle_data(self, reader, writer, data_type):
         """
@@ -37,15 +32,8 @@ class ConferenceServer:
         """
 
     async def handle_audio(self, reader, writer):
-<<<<<<< HEAD
         self.audio_client_conns.append((reader,writer))
         
-=======
-        """
-        addr: ('ip', port)
-        todo
-        """
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
         # data=await reader.read(1024)
         # while data:
         #     await self.broadcast_audio(data, addr)
@@ -71,7 +59,6 @@ class ConferenceServer:
 
             # 关闭连接
             print(f"[ConferenceServer]: Closing audio connection from {addr}")
-            self.client_conns.remove(writer)
             writer.close()
             await writer.wait_closed()
 
@@ -400,10 +387,7 @@ class MainServer:
                     "conference_message_port": new_conference_server.conf_serve_ports,
                     "conference_video_port": new_conference_server.data_serve_ports['video'],
                     "conference_audio_port": new_conference_server.data_serve_ports['audio']
-<<<<<<< HEAD
                     
-=======
->>>>>>> 28f661c6fdcccc369bdb93ec864e231951debeea
                     # "server_ip": self.server_ip,
                     # "ports": new_conference_server.conf_serve_ports,  # Example, needs initialization
                 }
