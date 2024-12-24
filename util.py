@@ -10,7 +10,7 @@ import pyautogui
 import numpy as np
 from PIL import Image, ImageGrab
 from config import *
-
+import noisereduce as nr
 
 # audio setting
 FORMAT = pyaudio.paInt16
@@ -119,6 +119,17 @@ def capture_camera():
 def capture_voice():
     return streamin.read(CHUNK)
 
+def denoise_audio(audio_data):
+    # 将音频数据转换为 numpy 数组
+    audio_array = np.frombuffer(audio_data, dtype=np.int16)
+
+    # 使用 noisereduce 进行降噪
+    reduced_noise = nr.reduce_noise(y=audio_array, sr=RATE)  # 假设采样率为 44100
+
+    # 将降噪后的数据转换回字节数据
+    denoised_audio_data = reduced_noise.astype(np.int16).tobytes()
+
+    return denoised_audio_data
 
 def compress_image(image, format='JPEG', quality=85):
     """
