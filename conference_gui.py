@@ -91,8 +91,7 @@ class ConferenceApp:
             self.open_meeting_window(self.client.conference_id)
             asyncio.create_task(self.run_receive_message())
             asyncio.create_task(self.client.receive_video())
-            
-            
+            asyncio.create_task(self.client.send_audio())
 
     def join_meeting(self):
         conference_id = simpledialog.askstring("Input", "Enter Conference ID:", parent=self.master)
@@ -106,6 +105,7 @@ class ConferenceApp:
             self.open_meeting_window(conference_id)
             asyncio.create_task(self.run_receive_message())
             asyncio.create_task(self.client.receive_video())
+            asyncio.create_task(self.client.send_audio())
             # # 创建协程任务
             # message_task = asyncio.create_task(self.run_receive_message())
             # audio_task = asyncio.create_task(self.handle_audio())
@@ -156,8 +156,8 @@ class ConferenceApp:
         self.camera_button = tk.Button(control_frame, text="Turn On Camera", command=self.turn_on_camera, bg=ON_COLOR)
         self.camera_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
 
-        self.video_button = tk.Button(control_frame, text="Turn On Screen Sharing", command=self.turn_on_video,bg=ON_COLOR)
-        self.video_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
+        # self.video_button = tk.Button(control_frame, text="Turn On Screen Sharing", command=self.turn_on_video,bg=ON_COLOR)
+        # self.video_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
 
         self.leave_button = tk.Button(control_frame, text="Leave Meeting", command=self.leave_meeting,bg=OFF_COLOR)
         self.leave_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
@@ -256,6 +256,7 @@ class ConferenceApp:
         if self.camera_streaming:
             self.camera_streaming = False
             self.client.on_cam = False
+            self.client.on_video = False
             self.capture_camera.release()
             self.camera_window.destroy()
             self.camera_button.config(text="Turn On Camera", bg=ON_COLOR, command=self.turn_on_camera)
@@ -264,6 +265,7 @@ class ConferenceApp:
         # TODO
         # self.video_button.config(text="Turn Off Camera", command=self.turn_off_camera)
         self.client.on_cam = True
+        self.client.on_video = True
         asyncio.create_task(self.client.send_video())
         if not self.camera_streaming:
             self.capture_camera = cv2.VideoCapture(0)  # 0 表示默认摄像头
