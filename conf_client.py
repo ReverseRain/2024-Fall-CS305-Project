@@ -327,7 +327,7 @@ class ConferenceClient:
                     remote_addr=self.conf_server_addr['audio']
                 )
 
-            self.conns=self.cs_conns['audio']
+            self.conns['audio']=self.cs_conns['audio']
             #         connect = asyncio.get_event_loop().create_datagram_endpoint(
             #     lambda: EchoUDPClientProtocol(),
             #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
@@ -743,7 +743,7 @@ class ConferenceClient:
             self.conns['audio'] = self.cs_conns['audio']
             await self.send_video(self.p2p_conns['video'][0], self.p2p_conns['video'][1])
 
-    def find_available_port(host='127.0.0.1', port=0):
+    def find_available_port(self,host='127.0.0.1', port=0):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((host, port))
             return s.getsockname()[1]
