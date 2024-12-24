@@ -122,7 +122,7 @@ class ConferenceApp:
     def open_meeting_window(self, conference_id):
         self.meeting_window = tk.Toplevel(self.master)
         self.meeting_window.title(f"Conference id: {conference_id}")
-        self.meeting_window.geometry("700x1200")
+        self.meeting_window.geometry("700x1000")
 
         self.master.withdraw()
 
@@ -137,7 +137,7 @@ class ConferenceApp:
         self.msg_scroll = tk.Scrollbar(chat_frame, orient="vertical")
         self.msg_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=15, padx=15)
 
-        self.msg_display = scrolledtext.ScrolledText(chat_frame, width=40, height=30, state='disabled',
+        self.msg_display = scrolledtext.ScrolledText(chat_frame, width=40, height=20, state='disabled',
                                                      yscrollcommand=self.msg_scroll.set)
         self.msg_display.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
@@ -150,7 +150,7 @@ class ConferenceApp:
         control_frame = tk.Frame(chat_frame)
         control_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
 
-        self.microphone_button = tk.Button(control_frame, text="Unmute Microphone", command=self.unmute_microphone, bg=ON_COLOR,)
+        self.microphone_button = tk.Button(control_frame, text="Mute Microphone", command=self.mute_microphone, bg=OFF_COLOR)
         self.microphone_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
 
         self.camera_button = tk.Button(control_frame, text="Turn On Camera", command=self.turn_on_camera, bg=ON_COLOR)
@@ -212,19 +212,13 @@ class ConferenceApp:
 
     async def _async_leaving_meeting(self):
         await self.client.quit_conference()
-        if(self.client.on_meeting==False):
+        if not self.client.on_meeting:
             self.meeting_window.destroy()
             self.master.deiconify()
 
     def leave_meeting(self):
         # TODO
         asyncio.create_task(self._async_leaving_meeting())
-
-    def handle_microphone(self):
-        if self.client.on_mic:
-            self.unmute_microphone()
-        else:
-            self.mute_microphone()
 
     async def _async_cancel_meeting(self):
         await self.client.cancel_conference()
@@ -237,7 +231,7 @@ class ConferenceApp:
 
     async def _async_switch_mode(self):
         await self.client.switch_p2p_server()
-        if(self.client.is_p2p==True):
+        if self.client.is_p2p:
             self.switch_button.config(text="Switch CS", command=self.switch_mode)
             # asyncio.create_task(self.client.receive_video())
         else:
@@ -261,17 +255,16 @@ class ConferenceApp:
     def turn_off_camera(self):
         if self.camera_streaming:
             self.camera_streaming = False
+            self.client.on_cam = False
             self.capture_camera.release()
             self.camera_window.destroy()
             self.camera_button.config(text="Turn On Camera", bg=ON_COLOR, command=self.turn_on_camera)
 
     def turn_on_camera(self):
         # TODO
-        # if not self.video_streaming:
-        #     self.capture=capture_camera()
         # self.video_button.config(text="Turn Off Camera", command=self.turn_off_camera)
-        # self.client.on_cam = True
-        # asyncio.create_task(self.client.send_video())
+        self.client.on_cam = True
+        asyncio.create_task(self.client.send_video())
         if not self.camera_streaming:
             self.capture_camera = cv2.VideoCapture(0)  # 0 表示默认摄像头
             if not self.capture_camera.isOpened():
@@ -349,8 +342,8 @@ class ConferenceApp:
     def turn_on_video(self):
         # TODO
         # self.video_button.config(text="Turn Off Screen Sharing", command=self.turn_off_video)
-        # self.client.on_video = True
-        # asyncio.create_task(self.client.send_video())
+        self.client.on_video = True
+        asyncio.create_task(self.client.send_video())
         if not self.video_streaming:
             self.video_window = tk.Toplevel(self.master)
             self.video_window.title(f'{self.username}\'s Screen Sharing')
