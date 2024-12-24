@@ -58,6 +58,7 @@ class ConferenceClient:
             if response_data.get("status") == "success":
                 self.conference_info = response_data["conference_info"]
                 self.on_meeting = True
+                self.is_owner = True
                 self.conference_id = self.conference_info['conference_id']
                 self.conf_server_addr['message'] = (
                     self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
@@ -128,37 +129,21 @@ class ConferenceClient:
         quit your on-going conference
         """
         try:
-            if not self.on_meeting:
-                self.show_info("[Info]: You are not on meeting .")
-                return
             # 初始化连接
-            reader, writer = self.conns['message']
-
-            # 构造消息数据
-            # message_data = {
-            #     "sender": self.username,
-            #     "message": message
-            # }
-
-            request_data = "quit_conference " + str(self.conference_id)
-
-            writer.write(request_data.encode('utf-8'))
-            await writer.drain()
+            if (self.is_owner):
+                print("owner can only cancel the conf")
+                return
+            await self.send_message('quit')
+            print('cancel quit?')
+            self.cs_conns = {}
+            self.p2p_conns = {}
 
             # 接收服务器响应
-            response = await reader.read(1024)
-            response_data = json.loads(response.decode('utf-8'))
 
-            if response_data.get("status") == "success":
-                self.on_meeting = False
-                self.on_mic = False
-                self.on_cam = False
-                self.on_video = False
-                self.show_info("[Success]: Successfully quit the conference.")
-            else:
-                self.show_info(f"[Error]: Failed to quit conference. Reason: {response_data.get('message')}")
-            writer.close()
-            await writer.wait_closed()
+            self.on_meeting = False
+            self.show_info("[Success]: Successfully quit the conference.")
+
+
         except Exception as e:
             self.show_info(f"[Error]: Unable to quit conference. Error: {e}")
 
@@ -167,10 +152,9 @@ class ConferenceClient:
         cancel your on-going conference (when you are the conference manager): ask server to close all clients
         """
         try:
-            if not self.on_meeting:
-                self.show_info("[Info]: You are not on meeting .")
-                return
             # 初始化连接
+            if (self.is_owner != True):
+                return
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server to cancel the conference.")
 
@@ -192,6 +176,11 @@ class ConferenceClient:
             # 关闭连接
             writer.close()
             await writer.wait_closed()
+            self.cs_conns = {}
+            self.p2p_conns = {}
+
+            self.is_owner = False
+            return
         except Exception as e:
             self.show_info(f"[Error]: Unable to cancel conference. Error: {e}")
 
@@ -249,20 +238,34 @@ class ConferenceClient:
             self.show_info("[Info]: Listening for incoming messages.")
 
             while True:
+                reader, writer = self.conns['message']
+                print('now recieve port', writer.get_extra_info('socket').getsockname()[1])
                 # 接收消息数据
+                print('mode', self.is_p2p)
                 response = await reader.read(1024)
+                print('?', response, 'port is ', writer.get_extra_info('socket').getsockname()[1])
                 if not response:
                     break  # 如果没有接收到数据，退出接收
-                # print(response)
                 message_data = json.loads(response.decode('utf-8'))
                 sender = message_data.get("sender")
                 message = message_data.get("message")
                 self.show_info(f"[New Message]-{sender}:{message}")
+                if (message == "conf close"):
+                    self.on_meeting = False
+                    await self.quit_conference()
+                elif ("message_ports" in message_data):
+                    await self.switch_p2p_client(message_data.get("ip"), message_data.get("message_ports"),
+                                                 message_data.get("video_ports"))
+                elif (message == "change CS"):
+                    await self.switch_p2p_client()
+                elif (message == "No"):
+                    self.is_p2p = False
                 message_callback(sender, message)
 
             # 关闭连接
-            writer.close()
-            await writer.wait_closed()
+            # writer.close()
+            # await writer.wait_closed()
+            print("退出")
 
         except Exception as e:
             self.show_info(f"[Error]: Failed to receive messages. Error: {e}")
@@ -323,9 +326,7 @@ class ConferenceClient:
                     lambda: AudioUDPClientProtocol(self),
                     remote_addr=self.conf_server_addr['audio']
                 )
-                transport,_ = self.conns['audio']
-                data = "hi"
-                transport.sendto(data,self.conf_server_addr['audio'])
+
             #         connect = asyncio.get_event_loop().create_datagram_endpoint(
             #     lambda: EchoUDPClientProtocol(),
             #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
