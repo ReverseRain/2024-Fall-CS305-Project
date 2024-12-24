@@ -137,7 +137,7 @@ class ConferenceClient:
             print('cancel quit?')
             self.cs_conns = {}
             self.p2p_conns = {}
-
+            await self.send_quit()
             # 接收服务器响应
 
             self.on_meeting = False
@@ -327,6 +327,7 @@ class ConferenceClient:
                     remote_addr=self.conf_server_addr['audio']
                 )
 
+            self.on_mic = True
             #         connect = asyncio.get_event_loop().create_datagram_endpoint(
             #     lambda: EchoUDPClientProtocol(),
             #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
@@ -482,6 +483,18 @@ class ConferenceClient:
         streamout.write(data)
         print("write data")
 
+    async def send_quit(self):
+        transport,_ = self.conns['audio']
+        # 将文本转换为字节
+        text = "quit"
+        message = text.encode('utf-8')  # 或者根据需要使用其他编码
+
+        # 发送数据
+        transport.sendto(message)
+        print(f"Sent message: {text}")
+
+        # 关闭连接
+        transport.close()
     async def send_video(self, reader=None, writer=None):
         if not self.on_meeting:
             self.show_info("[Error]: You are not in a conference.")
@@ -861,22 +874,6 @@ class AudioUDPClientProtocol(asyncio.DatagramProtocol):
         print("[Audio] UDP connection lost.")
 
 
-
-class EchoUDPClientProtocol(asyncio.DatagramProtocol):
-    def __init__(self):
-        self.transport = None
-
-    def connection_made(self, transport):
-        self.transport = transport
-
-    def datagram_received(self, data, addr):
-        message = data.decode()
-        print(f"Received response: {message} from {addr}")
-        # 调用回调函数处理响应
-
-    def error_received(self, exc):
-        print(f"Error received: {exc}")
-        self.transport.close()
 
 
 if __name__ == '__main__':
