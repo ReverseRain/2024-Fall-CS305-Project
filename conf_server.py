@@ -90,8 +90,9 @@ class ConferenceServer:
                 # response='Received'
                 # writer.write(response.encode('utf-8'))
                 # await writer.drain()
-                if(message.get("message")=='quit'):
-                    index=self.client_conns.index((reader,writer))
+                print(message.get("message"))
+                if (message.get("message") == 'quit'):
+                    index = self.client_conns.index((reader, writer))
 
                     reader_video, writer_video = self.video_client_conns[index]
                     writer_video.close()
@@ -99,11 +100,12 @@ class ConferenceServer:
                     del self.client_conns[index]
                     del self.video_client_conns[index]
                     continue
-                elif(message.get("message")=='p2p'):
-                    if(len(self.client_conns)!=2):
-                        response={
-                            "sender":"server",
-                            "message":"No"
+                elif (message.get("message") == 'p2p'):
+                    print(len(self.client_conns))
+                    if (len(self.client_conns) != 2):
+                        response = {
+                            "sender": "server",
+                            "message": "No"
                         }
                         writer.write(json.dumps(response).encode('utf-8'))
                         await writer.drain()
@@ -233,8 +235,12 @@ class ConferenceServer:
     async def quit_p2p(self, request_data):
 
         reader, writer = await asyncio.open_connection(self.p2p_message_ip, self.p2p_message_port)
+        print('step 2')
         writer.write(request_data.encode('utf-8'))
+        print('step 3')
         await writer.drain()
+        print('step 4')
+        # print('shuahsu')
 
         writer.close()
         await writer.wait_closed()
