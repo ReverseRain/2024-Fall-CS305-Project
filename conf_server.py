@@ -51,7 +51,6 @@ class ConferenceServer:
                 # response='Received'
                 # writer.write(response.encode('utf-8'))
                 # await writer.drain()
-                print(message.get("message"))
                 if(message.get("message")=='quit'):
                     index=self.client_conns.index((reader,writer))
 
@@ -62,7 +61,6 @@ class ConferenceServer:
                     del self.video_client_conns[index]
                     continue
                 elif(message.get("message")=='p2p'):
-                    print(len(self.client_conns))
                     if(len(self.client_conns)!=2):
                         response={
                             "sender":"server",

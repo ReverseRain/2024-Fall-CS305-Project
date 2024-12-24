@@ -124,7 +124,6 @@ class ConferenceClient:
                 print("owner can only cancel the conf")
                 return
             await self.send_message('quit')
-            print('cancel quit?')
             self.cs_conns={}
             self.p2p_conns={}
 
@@ -228,11 +227,9 @@ class ConferenceClient:
 
             while True:
                 reader, writer = self.conns['message']
-                print('now recieve port',writer.get_extra_info('socket').getsockname()[1])
+                # print('now recieve port',writer.get_extra_info('socket').getsockname()[1])
                 # 接收消息数据
-                print('mode',self.is_p2p)
                 response = await reader.read(1024)
-                print('?',response,'port is ',writer.get_extra_info('socket').getsockname()[1])
                 if not response:
                     break  # 如果没有接收到数据，退出接收
                 message_data = json.loads(response.decode('utf-8'))
@@ -294,7 +291,6 @@ class ConferenceClient:
 
         try:
             if 'message' not in self.cs_conns:
-                print('start new ??')
                 self.cs_conns['message']=await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
                 
             self.conns['message'] = self.cs_conns['message']
@@ -552,10 +548,8 @@ class ConferenceClient:
         reader,writer=self.conns['message']
 
     async def p2p_message(self,reader,writer):  
-        print('hhhhweuiwqnk')
         reader1,writer1=self.cs_conns['message']
         if('message' not in self.p2p_conns):
-            print('whyxjaiosiosaisaiasisio?')
             self.p2p_conns['message']=(reader,writer)
             self.conns['message']=self.p2p_conns['message']
             change_data={
@@ -569,7 +563,6 @@ class ConferenceClient:
             message_data = json.loads(response.decode('utf-8'))
             message = message_data.get("message")
             if(message=="p2p only for 2 clients change to cs"):
-                print('in here?')
                 await self.switch_p2p_server()
 
     async def p2p_video(self,reader,writer):  
@@ -655,7 +648,6 @@ class ConferenceClient:
             if 'video' not in self.p2p_conns:
                 self.p2p_conns['video']=await asyncio.open_connection(ip,video_port)
             if 'message' not in self.p2p_conns:
-                print(ip,message_port)
                 self.p2p_conns['message'] = await asyncio.open_connection(ip,message_port)
             self.conns['message'] = self.p2p_conns['message']
             self.conns['video'] = self.p2p_conns['video']
