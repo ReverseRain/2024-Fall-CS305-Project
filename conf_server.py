@@ -41,7 +41,7 @@ class ConferenceServer:
         """接收来自客户端的音频数据并广播"""
         # print(f"[ConferenceServer]: Received audio data from {addr}, forwarding to other clients.")
         # 广播接收到的音频数据
-        await self.broadcast_audio(client_addr, data, addr)
+        await self.broadcast_audio(data, addr)
 
     # async def handle_audio(self, reader, writer):
     #     self.audio_client_conns.append((reader,writer))
@@ -254,11 +254,11 @@ class ConferenceServer:
     #             except Exception as e:
     #                 print(f"[Error]: Failed to send message to client: {e}")
 
-    async def broadcast_audio(self, client_addr, audio, addr):
+    async def broadcast_audio(self, audio, addr):
         """将接收到的音频数据广播给所有其他客户端"""
-        print(len(client_addr))
+        print(len(self.audio_client_conns))
         try:
-            for address in client_addr:
+            for address in self.audio_client_conns:
                 print(address)
                 if address != addr:
                     self.audio_transport.sendto(audio, address)
@@ -383,6 +383,7 @@ class ConferenceServer:
 
             # self.audio_server = await asyncio.start_server(self.handle_audio, self.conf_serve_ip, 0)
             # self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
+
             self.audio_transport,self.audio_protocol = await self.setup_audio_server()
             print(f"[ConferenceServer]: Starting main server at {self.conf_serve_ip}:{self.conf_serve_ports}")
             print(f"[ConferenceServer]: Starting video server at {self.conf_serve_ip}:{self.data_serve_ports['video']}")
@@ -411,18 +412,24 @@ class AudioUDPServerProtocol(asyncio.DatagramProtocol):
         self.wf.setnchannels(1)  # 设置声道数
         self.wf.setsampwidth(2)  # 设置样本宽度
         self.wf.setframerate(44100)
-        self.client_addr = []
+        self.client_addr = server.audio_client_conns
     def connection_made(self, transport):
         """UDP 连接建立"""
         self.transport = transport
         print("[AudioUDPServerProtocol]: UDP connection established.")
 
     def datagram_received(self, data, addr):
-        """接收到来自客户端的音频数据"""
         if addr not in self.client_addr:
             self.client_addr.append(addr)
             print(f"add {addr}")
-        asyncio.create_task(self.server.handle_audio(self.client_addr, self.wf ,data, addr))
+        try:
+            # 判断是否为字符串
+            message = data.decode('utf-8')  # 尝试将数据解码为 UTF-8 字符串
+            print(f"Received string: {message}")
+            if message == "quit":
+                self.client_addr.remove(addr)
+        except UnicodeDecodeError:
+            asyncio.create_task(self.server.handle_audio(self.client_addr, self.wf ,data, addr))
 
     def error_received(self, exc):
         """处理接收错误"""
@@ -431,60 +438,6 @@ class AudioUDPServerProtocol(asyncio.DatagramProtocol):
     def connection_lost(self, exc):
         """UDP 连接丢失"""
         print("[AudioUDPServerProtocol]: UDP connection lost.")
-
-
-# udp 处理视频
-class EchoUDPProtocol(asyncio.DatagramProtocol):
-    def __init__(self, server):
-        self.transport = None
-        self.received_chunks = {}  # 用于存储接收到的块
-        self.total_chunks = 0
-        self.main_server = server
-
-    def connection_made(self, transport):
-        self.transport = transport
-
-    def datagram_received(self, data, addr):
-        print('Received a chunk from', addr)
-
-        # 如果还没有接收到文件头，先接收文件头
-        if self.total_chunks == 0:
-            # 文件头包含总块数，4字节
-            self.total_chunks = struct.unpack('I', data)[0]
-            print(f"Received header: total chunks = {self.total_chunks}")
-            return  # 文件头接收完后返回，等待后续的块数据
-
-        # 获取块序号（4字节）和数据块
-        chunk_id = struct.unpack('I', data[:4])[0]
-        chunk_data = data[4:]
-
-        # 存储接收到的数据块
-        self.received_chunks[chunk_id] = chunk_data
-
-        print(f"Received chunk {chunk_id + 1}/{self.total_chunks} ({len(chunk_data)} bytes)")
-
-        # 如果所有块都已经收到，进行重组
-        if len(self.received_chunks) == self.total_chunks:
-            asyncio.get_event_loop().run_in_executor(None, self.handle_data)
-
-            # 重置状态，为下一个图像准备
-
-    def handle_data(self):
-        # 将所有块按序号排序并合并
-        print(f'handle data total_chunks= {self.total_chunks}')
-
-        all_data = b''.join([self.received_chunks[i] for i in range(self.total_chunks)])
-
-        # 使用 OpenCV 解码图像
-        frame = cv2.imdecode(np.frombuffer(all_data, dtype=np.uint8), cv2.IMREAD_COLOR)
-
-        if frame is None:
-            print("Failed to decode frame.")
-        else:
-            cv2.imshow('Received Frame', frame)
-            cv2.waitKey(1)
-        self.received_chunks.clear()
-        self.total_chunks = 0
 
 
 class MainServer:
@@ -611,7 +564,7 @@ class MainServer:
 
                 self.conference_servers[conference_id].client_conns.remove()
                 self.conference_servers[conference_id].video_client_conns.remove()
-
+                self.conference_servers[conference_id].audio_client_conns.remove()
                 # 构造响应数据
                 response_data = {
                     "status": "success",
