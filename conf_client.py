@@ -1,3 +1,5 @@
+import socket
+
 from util import *
 import asyncio
 import json
@@ -132,13 +134,16 @@ class ConferenceClient:
                 print("owner can only cancel the conf")
                 return
             await self.send_message('quit')
-            print('cancel quit?')
+            await self.send_quit()
             self.cs_conns = {}
             self.p2p_conns = {}
-            await self.send_quit()
+            
             # 接收服务器响应
 
             self.on_meeting = False
+            self.on_mic = False
+            self.on_cam = False
+            self.on_video = False
             self.show_info("[Success]: Successfully quit the conference.")
 
 
@@ -253,7 +258,7 @@ class ConferenceClient:
                     await self.quit_conference()
                 elif ("message_ports" in message_data):
                     await self.switch_p2p_client(message_data.get("ip"), message_data.get("message_ports"),
-                                                 message_data.get("video_ports"))
+                                                 message_data.get("video_ports"),message_data.get("audio_ports"))
                 elif (message == "change CS"):
                     await self.switch_p2p_client()
                 elif (message == "No"):
@@ -308,7 +313,7 @@ class ConferenceClient:
                                                                       self.conf_server_addr['message'][1])
             self.conns['message'] = self.cs_conns['message']
 
-            if 'video' not in self.conns:
+            if 'video' not in self.cs_conns:
                 self.cs_conns['video'] = await asyncio.open_connection(self.conf_server_addr['video'][0],
                                                                     self.conf_server_addr['video'][1])
             self.conns['video'] = self.cs_conns['video']
@@ -318,13 +323,14 @@ class ConferenceClient:
             #     self.conns['audio'] = await asyncio.open_connection(self.conf_server_addr['audio'][0],
             #                                                          self.conf_server_addr['audio'][1])
 
-            if 'audio' not in self.conns:
+            if 'audio' not in self.cs_conns:
                 loop = asyncio.get_running_loop()
-                self.conns['audio'] = await loop.create_datagram_endpoint(
+                self.cs_conns['audio'] = await loop.create_datagram_endpoint(
                     lambda: AudioUDPClientProtocol(self),
                     remote_addr=self.conf_server_addr['audio']
                 )
 
+            self.conns['audio']=self.cs_conns['audio']
             self.on_mic = True
             #         connect = asyncio.get_event_loop().create_datagram_endpoint(
             #     lambda: EchoUDPClientProtocol(),
@@ -726,12 +732,16 @@ class ConferenceClient:
             self.p2p_video_server = await asyncio.start_server(self.p2p_video, video_ip, 0)
             video_ports = self.p2p_video_server.sockets[0].getsockname()[1]
 
+            audio_ports=self.find_available_port()
+            audio_ip=video_ip
+
             request_data = {
                 "sender": self.username,
                 "message": "p2p",
                 "ip": message_ip,
                 "message_ports": message_ports,
-                "video_ports": video_ports
+                "video_ports": video_ports,
+                "audio_ports": audio_ports,
             }
             request = json.dumps(request_data)
             writer.write(request.encode('utf-8'))
@@ -746,7 +756,13 @@ class ConferenceClient:
             await self.send_message("change CS")
             self.conns['message'] = self.cs_conns['message']
             self.conns['video'] = self.cs_conns['video']
+            self.conns['audio'] = self.cs_conns['audio']
             await self.send_video(self.p2p_conns['video'][0], self.p2p_conns['video'][1])
+
+    def find_available_port(self,host='127.0.0.1', port=0):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host, port))
+            return s.getsockname()[1]
 
     async def close_p2p(self):
         if ('message' in self.p2p_conns):
@@ -758,7 +774,7 @@ class ConferenceClient:
             await self.p2p_conns['video'][1].wait_closed()
             del self.p2p_conns['video']
 
-    async def switch_p2p_client(self, ip=None, message_port=None, video_port=None):
+    async def switch_p2p_client(self, ip=None, message_port=None, video_port=None,audio_port=None):
         if (self.is_p2p == False):
             await self.close_p2p()
             self.is_p2p = True
@@ -767,13 +783,20 @@ class ConferenceClient:
             if 'video' not in self.p2p_conns:
                 self.p2p_conns['video'] = await asyncio.open_connection(ip, video_port)
             if 'message' not in self.p2p_conns:
-                print(ip, message_port)
                 self.p2p_conns['message'] = await asyncio.open_connection(ip, message_port)
+            if 'audio' not in self.p2p_conns:
+                loop = asyncio.get_running_loop()
+                self.p2p_conns['audio'] = await loop.create_datagram_endpoint(
+                    lambda: AudioUDPClientProtocol(self),
+                    remote_addr=(ip,audio_port)
+                )
             self.conns['message'] = self.p2p_conns['message']
             self.conns['video'] = self.p2p_conns['video']
+            self.conns['audio'] = self.p2p_conns['audio']
 
             self.p2p_video_server = None
             self.p2p_message_server = None
+            self.p2p_audio_server = None
 
             await self.send_video(self.cs_conns['video'][0], self.cs_conns['video'][1])
         else:
@@ -781,6 +804,7 @@ class ConferenceClient:
             await self.send_message("CS success")
             self.conns['message'] = self.cs_conns['message']
             self.conns['video'] = self.cs_conns['video']
+            self.conns['audio'] = self.cs_conns['audio']
             await self.send_video(self.p2p_conns['video'][0], self.p2p_conns['video'][1])
 
     def start(self):
