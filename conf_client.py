@@ -3,6 +3,7 @@ import asyncio
 import json
 from config import *
 import struct
+import threading
 
 
 
@@ -21,10 +22,17 @@ class ConferenceClient:
         self.conference_info = None  # you may need to save and update some conference_info regularly
 
         self.recv_data = None  # you may need to save received streamd data from other clients in conference
-
+        self.p2p_addr = {}
 
         self.username=None
         self.on_video=False
+        self.is_owner=False
+        self.is_p2p=False
+
+        self.p2p_message_server=None
+        self.p2p_video_server=None
+        self.cs_conns = {}
+        self.p2p_conns = {}
 
     async def create_conference(self):
         try:
@@ -46,6 +54,7 @@ class ConferenceClient:
             if response_data.get("status") == "success":
                 self.conference_info = response_data["conference_info"]
                 self.on_meeting = True
+                self.is_owner = True
                 self.conference_id = self.conference_info['conference_id']
                 self.conf_server_addr['message'] = (
                 self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
@@ -59,6 +68,7 @@ class ConferenceClient:
             # 关闭连接
             writer.close()
             await writer.wait_closed()
+            # self.on_video=True
 
             await self.start_conference()
         except Exception as e:
@@ -110,25 +120,20 @@ class ConferenceClient:
         """
         try:
             # 初始化连接
-            reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
-            self.show_info("[Info]: Connected to the server to quit the conference.")
-
-            request_data = "quit_conference " + str(self.conference_id)
-
-            writer.write(request_data.encode('utf-8'))
-            await writer.drain()
+            if(self.is_owner):
+                print("owner can only cancel the conf")
+                return
+            await self.send_message('quit')
+            print('cancel quit?')
+            self.cs_conns={}
+            self.p2p_conns={}
 
             # 接收服务器响应
-            response = await reader.read(1024)
-            response_data = json.loads(response.decode('utf-8'))
+            
+            self.on_meeting = False
+            self.show_info("[Success]: Successfully quit the conference.")
+            
 
-            if response_data.get("status") == "success":
-                self.on_meeting = False
-                self.show_info("[Success]: Successfully quit the conference.")
-            else:
-                self.show_info(f"[Error]: Failed to quit conference. Reason: {response_data.get('message')}")
-            writer.close()
-            await writer.wait_closed()
         except Exception as e:
             self.show_info(f"[Error]: Unable to quit conference. Error: {e}")
 
@@ -138,6 +143,8 @@ class ConferenceClient:
         """
         try:
             # 初始化连接
+            if(self.is_owner!=True):
+                return
             reader, writer = await asyncio.open_connection(self.server_addr[0], self.server_addr[1])
             self.show_info("[Info]: Connected to the server to cancel the conference.")
 
@@ -159,6 +166,11 @@ class ConferenceClient:
             # 关闭连接
             writer.close()
             await writer.wait_closed()
+            self.cs_conns={}
+            self.p2p_conns={}
+
+            self.is_owner=False
+            return
         except Exception as e:
             self.show_info(f"[Error]: Unable to cancel conference. Error: {e}")
 
@@ -182,7 +194,6 @@ class ConferenceClient:
                 "sender": self.username,
                 "message": message
             }
-            print("message_data: ", message_data)
             request_data = json.dumps(message_data)
             writer.write(request_data.encode('utf-8'))
             await writer.drain()
@@ -216,20 +227,33 @@ class ConferenceClient:
             self.show_info("[Info]: Listening for incoming messages.")
 
             while True:
+                reader, writer = self.conns['message']
+                print('now recieve port',writer.get_extra_info('socket').getsockname()[1])
                 # 接收消息数据
+                print('mode',self.is_p2p)
                 response = await reader.read(1024)
+                print('?',response,'port is ',writer.get_extra_info('socket').getsockname()[1])
                 if not response:
                     break  # 如果没有接收到数据，退出接收
-                # print(response)
                 message_data = json.loads(response.decode('utf-8'))
                 sender = message_data.get("sender")
                 message = message_data.get("message")
                 self.show_info(f"[New Message]-{sender}:{message}")
+                if(message=="conf close"):
+                    self.on_meeting=False
+                    await self.quit_conference()
+                elif("message_ports" in message_data):
+                    await self.switch_p2p_client(message_data.get("ip"),message_data.get("message_ports"),message_data.get("video_ports"))
+                elif(message=="change CS"):
+                    await self.switch_p2p_client()
+                elif(message=="No"):
+                    self.is_p2p=False
                 message_callback(sender, message)
 
             # 关闭连接
             # writer.close()
             # await writer.wait_closed()
+            print("退出")
 
         except Exception as e:
             self.show_info(f"[Error]: Failed to receive messages. Error: {e}")
@@ -269,10 +293,14 @@ class ConferenceClient:
             return
 
         try:
-            if 'message' not in self.conns:
-                self.conns['message'] = await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
-            if 'video' not in self.conns:
-                self.conns['video'] = await asyncio.open_connection(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
+            if 'message' not in self.cs_conns:
+                print('start new ??')
+                self.cs_conns['message']=await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
+                
+            self.conns['message'] = self.cs_conns['message']
+            if 'video' not in self.cs_conns:
+                self.cs_conns['video']= await asyncio.open_connection(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
+            self.conns['video']=self.cs_conns['video']
         #         connect = asyncio.get_event_loop().create_datagram_endpoint(
         #     lambda: EchoUDPClientProtocol(),
         #     remote_addr=(self.conf_server_addr['video'][0], self.conf_server_addr['video'][1])
@@ -329,7 +357,7 @@ class ConferenceClient:
             if user_input.strip():  # 如果用户输入了内容
                 await self.send_message(user_input)
 
-    async def send_video(self):
+    async def send_video(self,reader=None,writer=None):
         if not self.on_meeting:
             self.show_info("[Error]: You are not in a conference.")
             return
@@ -337,11 +365,18 @@ class ConferenceClient:
         if not self.conns['video']:
             self.show_info("[Error]: Not connected to the message server.")
             return
+        
+        
 
         try:
-
-            reader, writer = self.conns['video']
-
+            if(reader==None and writer==None):
+                reader, writer = self.conns['video']
+            sender_addr = writer.get_extra_info('sockname')
+            sender_addr_str = f"{sender_addr[0]}:{sender_addr[1]}"  # 将地址格式化为字符串，如 "127.0.0.1:12345"
+            sender_addr_bytes = sender_addr_str.encode('utf-8')  # 转换为字节串
+            address_length = len(sender_addr_bytes)
+            
+            print(f'sender addr {sender_addr_str}')
 
             while self.on_video:
                 # screen_frame = capture_screen()
@@ -351,31 +386,52 @@ class ConferenceClient:
                 # compressed_screen = compress_image(screen_frame, format='JPEG', quality=85)
                 compressed_screen = compress_image(camera_frame, format='JPEG', quality=85)
 
-                # print(compressed_screen.tell())
+                # cv2.imshow('self', frame)
+                # cv2.waitKey(1)  # 等待1毫秒来处理OpenCV事件
+               
                 
-                # writer.write(compressed_camera)
-                frame_length = len(compressed_screen).to_bytes(4, 'big')
-                print(len(compressed_screen))
-                writer.write(frame_length + compressed_screen)
+                
+                total_length =  4 + 4 + address_length + len(compressed_screen)
+                #4byte 地址长度 + 4byte 数据帧长度 + 地址 +数据
+
+                frame_length_bytes = len(compressed_screen).to_bytes(4, 'big')
+                address_length_bytes=address_length.to_bytes(4,'big')
+                total_length_bytes = total_length.to_bytes(4, 'big')
+                packet = total_length_bytes + address_length_bytes +frame_length_bytes+ sender_addr_bytes + compressed_screen
+                writer.write(packet)
                 await writer.drain()
                 self.show_info(f"[Info]: sending video")
-                await asyncio.sleep(0.05)
+
+                await asyncio.sleep(0.01)
             
-            writer.write(b'\x00\x00\x00\x00')
+            #cv2.destroyWindow('self')
+            total_length =  4 + 4 + address_length
+            #4byte 地址长度 + 4byte 数据帧长度 + 地址
+            address_length_bytes=address_length.to_bytes(4,'big')
+            total_length_bytes = total_length.to_bytes(4, 'big')
+            frame_length_bytes=(0).to_bytes(4,'big')
+            stop_packet = total_length_bytes + address_length_bytes +frame_length_bytes+ sender_addr_bytes 
+            
+            writer.write(stop_packet)
             await writer.drain()
             print("[Info]: Sent stop video signal.")
                     
 
 
         except Exception as e:
-            self.show_info(f"[Error]: Failed to send message. Error: {e}")
-            writer.write(b'\x00\x00\x00\x00')
+            self.show_info(f"[Error]: Failed to send video. Error: {e}")
+            #cv2.destroyWindow('self')
+            total_length =  4 + 4 + address_length
+            #4byte 地址长度 + 4byte 数据帧长度 + 地址
+            address_length_bytes=address_length.to_bytes(4,'big')
+            total_length_bytes = total_length.to_bytes(4, 'big')
+            frame_length_bytes=(0).to_bytes(4,'big')
+            stop_packet = total_length_bytes + address_length_bytes +frame_length_bytes+ sender_addr_bytes 
+            
+            writer.write(stop_packet)
             await writer.drain()
             print("[Info]: Sent stop video signal.")
         
-       
-            
-
     async def receive_video(self):
         if not self.on_meeting:
             self.show_info("[Error]: You are not in a conference.")
@@ -386,36 +442,235 @@ class ConferenceClient:
             return
 
         try:
-            sock = self.conns['video']
+            reader, writer = self.conns['video']
             self.show_info("[Info]: Listening for incoming video frames.")
 
+            self_addr = writer.get_extra_info('sockname')
+            self_addr_str = f"{self_addr[0]}:{self_addr[1]}" 
+           
+
+            # 存储每个发送者地址的帧索引
+            sender_frames = {}
+            max_width, max_height = 1800, 1000  # 大窗口的尺寸
+            frame_width, frame_height = 900, 500  # 每个视频帧的显示区域大小
+            cols = max_width // frame_width  # 每行显示的帧数
+            # 创建一个大窗口，初始化黑色背景
+            canvas = np.zeros((max_height, max_width, 3), dtype=np.uint8)
+
+            
             while True:
-                data = await sock.recvfrom()  # 假设消息头大小为 1024 字节
-                if not data:
-                    break  # 如果没有接收到数据，退出接收
+                reader, writer = self.conns['video']
+                # 读取总长度（4字节）
+                total_length_data = await reader.readexactly(4)
+                total_length = int.from_bytes(total_length_data, 'big')
 
-                # _, payload = data[:4], data = data[4:]
-                # length = struct.unpack('>I', payload)[0]
+                # 读取地址长度（4字节）
+                address_length_data = await reader.readexactly(4)
+                address_length = int.from_bytes(address_length_data, 'big')
 
-                # # 接收完整的视频帧
-                # while len(payload) < length:
-                #     payload += await reader.read(length - len(payload))
+                # 读取视频帧长度（4字节）
+                frame_length_data = await reader.readexactly(4)
+                frame_length = int.from_bytes(frame_length_data, 'big')
 
-                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                # 读取发送者地址
+                sender_addr_data = await reader.readexactly(address_length)
+                sender_addr_str = sender_addr_data.decode('utf-8')
+
+
+                if frame_length == 0:
+                    print(f"[{sender_addr_str}]: Received stop signal. Removing from display.")
+                    if sender_addr_str in sender_frames:
+                       
+                        del sender_frames[sender_addr_str]
+                        canvas.fill(0)
+                        for i, (addr, frame) in enumerate(sender_frames.items()):
+                            row, col = divmod(i, cols)
+                            if row * frame_height >= max_height:  # 超过窗口大小则跳过
+                                break
+                            x, y = col * frame_width, row * frame_height
+                            canvas[y:y + frame_height, x:x + frame_width] = cv2.resize(frame, (frame_width, frame_height))
+                            # 显示发送者地址
+                            if addr==self_addr_str:
+                                cv2.putText(canvas, 'YOU', (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                            else:
+                                cv2.putText(canvas, addr, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                        # 显示大窗口
+                        cv2.imshow("Video Conference", canvas)
+                        cv2.waitKey(1)
+                    continue
+                
+                # 读取视频帧数据
+                frame_data = await reader.readexactly(frame_length)
+                if len(frame_data)==0:
+                    continue
+                frame = cv2.imdecode(np.frombuffer(frame_data, dtype=np.uint8), cv2.IMREAD_COLOR)
 
                 if frame is None:
                     print("Failed to decode frame.")
                     continue
+                else:
+                    print("reveive new video")
+                # 如果是新发送者，添加到 sender_frames
+                #if sender_addr_str not in sender_frames:
+                sender_frames[sender_addr_str] = frame
 
-                # 显示帧（这里仅作为示例，实际应用中可能需要保存或进一步处理）
-                cv2.imshow('Received Frame', frame)
+
+                
+
+                # 绘制所有发送者的帧到大窗口
+                for i, (addr, frame) in enumerate(sender_frames.items()):
+                    row, col = divmod(i, cols)
+                    if row * frame_height >= max_height:  # 超过窗口大小则跳过
+                        break
+                    x, y = col * frame_width, row * frame_height
+                    canvas[y:y + frame_height, x:x + frame_width] = cv2.resize(frame, (frame_width, frame_height))
+                    # 显示发送者地址
+                    if addr==self_addr_str:
+                        cv2.putText(canvas, 'YOU', (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                    else:
+                        cv2.putText(canvas, addr, (x + 5, y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                # 显示大窗口
+                cv2.imshow("Video Conference", canvas)
                 cv2.waitKey(1)
+                
+                #如果是p2p则发生回声音
+                if(self.is_p2p==True and self.p2p_video_server==None):
+                    packet=total_length_data + address_length_data +frame_length_data+ sender_addr_data + frame_data
+                    writer.write(packet)
+                    await writer.drain()
+                
 
         except Exception as e:
             self.show_info(f"[Error]: Failed to receive video frame. Error: {e}")
 
         finally:
             self.show_info("[Info]: Stopped receiving video frames.")
+            cv2.destroyAllWindows()
+
+    async def check_p2p(self):
+        await self.send_message('p2p')
+        reader,writer=self.conns['message']
+
+    async def p2p_message(self,reader,writer):  
+        print('hhhhweuiwqnk')
+        reader1,writer1=self.cs_conns['message']
+        if('message' not in self.p2p_conns):
+            print('whyxjaiosiosaisaiasisio?')
+            self.p2p_conns['message']=(reader,writer)
+            self.conns['message']=self.p2p_conns['message']
+            change_data={
+                "sender":self.username,
+                "message":"new mode message start"
+            }
+            writer1.write(json.dumps(change_data).encode('utf-8'))
+            await writer1.drain()
+        else:
+            response = await reader.read(1024)
+            message_data = json.loads(response.decode('utf-8'))
+            message = message_data.get("message")
+            if(message=="p2p only for 2 clients change to cs"):
+                print('in here?')
+                await self.switch_p2p_server()
+
+    async def p2p_video(self,reader,writer):  
+
+        reader1,writer1=self.cs_conns['video']
+        self.p2p_conns['video']=(reader,writer)
+        self.conns['video']=self.p2p_conns['video']
+        await self.send_video(self.cs_conns['video'][0],self.cs_conns['video'][1])
+
+
+
+    async def switch_p2p_server(self):
+        # self.conf_server_addr['message'] = (
+        #         self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
+        if self.is_p2p==False:
+            self.is_p2p=True
+            await self.close_p2p()
+            await self.check_p2p()
+            if(self.is_p2p==False):
+                return
+            message_ip=self.conns['message'][1].get_extra_info('socket').getsockname()[0]
+            video_ip=self.conns['video'][1].get_extra_info('socket').getsockname()[0]
+            reader,writer=self.conns['message']
+            reader_video,writer_video=self.conns['video']
+            self.p2p_message_server = await asyncio.start_server(self.p2p_message, message_ip, 0)
+            message_ports = self.p2p_message_server.sockets[0].getsockname()[1]
+            self.p2p_video_server = await asyncio.start_server(self.p2p_video, video_ip, 0)
+            video_ports = self.p2p_video_server.sockets[0].getsockname()[1]
+
+            request_data={
+                    "sender":self.username,
+                    "message":"p2p",
+                    "ip": message_ip,
+                    "message_ports": message_ports,
+                    "video_ports": video_ports
+                }
+            request=json.dumps(request_data)
+            writer.write(request.encode('utf-8'))
+            await writer.drain()
+
+            
+
+            # self.start_server_in_thread()
+            # async with self.p2p_message_server:
+            #     await  self.p2p_message_server.serve_forever() 
+            
+        else:
+            self.is_p2p=False
+            await self.send_message("change CS")
+            self.conns['message'] = self.cs_conns['message']
+            self.conns['video'] = self.cs_conns['video']
+            await self.send_video(self.p2p_conns['video'][0],self.p2p_conns['video'][1])
+    
+    async def close_p2p(self):
+        if('message' in self.p2p_conns):
+            self.p2p_conns['message'][1].close()
+            await self.p2p_conns['message'][1].wait_closed()  
+            del self.p2p_conns['message']
+        if('video' in self.p2p_conns):  
+            self.p2p_conns['video'][1].close()
+            await self.p2p_conns['video'][1].wait_closed()   
+            del  self.p2p_conns['video']
+         
+        
+            
+
+    # def start_server_in_thread(self):
+    #     loop = asyncio.new_event_loop()
+    #     t = threading.Thread(target=self.run_server, args=(loop,))
+    #     t.start()
+
+    # def run_server(self, loop):
+    #     asyncio.set_event_loop(loop)
+    #     loop.run_until_complete(self.p2p_message_server)
+    #     loop.run_forever()    
+
+    async def switch_p2p_client(self,ip=None,message_port=None,video_port=None):
+        if(self.is_p2p==False):
+            await self.close_p2p()
+            self.is_p2p=True
+            await self.send_message("P2P success")
+            
+            if 'video' not in self.p2p_conns:
+                self.p2p_conns['video']=await asyncio.open_connection(ip,video_port)
+            if 'message' not in self.p2p_conns:
+                print(ip,message_port)
+                self.p2p_conns['message'] = await asyncio.open_connection(ip,message_port)
+            self.conns['message'] = self.p2p_conns['message']
+            self.conns['video'] = self.p2p_conns['video']
+
+            self.p2p_video_server=None
+            self.p2p_message_server=None
+
+            await self.send_video(self.cs_conns['video'][0],self.cs_conns['video'][1])
+        else:
+            self.is_p2p=False
+            await self.send_message("CS success")
+            self.conns['message'] = self.cs_conns['message']
+            self.conns['video'] = self.cs_conns['video']
+            await self.send_video(self.p2p_conns['video'][0],self.p2p_conns['video'][1])
+        
 
     async def message_test(self):
         """启动会议客户端，并同时处理发送和接收消息"""

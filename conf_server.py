@@ -22,6 +22,10 @@ class ConferenceServer:
         self.mode = 'Client-Server'  # or 'P2P' if you want to support peer-to-peer conference mode
 
         self.video_server=None
+        self.video_client_conns=[]
+
+        self.p2p_message_ip=None
+        self.p2p_message_port=None
 
     async def handle_data(self, reader, writer, data_type):
         """
@@ -42,14 +46,57 @@ class ConferenceServer:
                 if not data:
                     break  # 如果没有接收到数据，退出循环
 
-                message = data.decode()
+                message = json.loads(data.decode('utf-8'))
                 print(f"[ConferenceServer-{self.conference_id}]: Received message: {message}")
                 # response='Received'
                 # writer.write(response.encode('utf-8'))
                 # await writer.drain()
+                print(message.get("message"))
+                if(message.get("message")=='quit'):
+                    index=self.client_conns.index((reader,writer))
 
+                    reader_video,writer_video=self.video_client_conns[index]
+                    writer_video.close()
+                    await writer_video.wait_closed()
+                    del self.client_conns[index]
+                    del self.video_client_conns[index]
+                    continue
+                elif(message.get("message")=='p2p'):
+                    print(len(self.client_conns))
+                    if(len(self.client_conns)!=2):
+                        response={
+                            "sender":"server",
+                            "message":"No"
+                        }
+                        writer.write(json.dumps(response).encode('utf-8'))
+                        await writer.drain()
+                        continue
+                    else:
+                        self.mode='p2p'
+                        data = await reader.read(1024)
+                        if not data:
+                            break
+                        message = data.decode()
+                        for reader2,writer2 in self.client_conns:
+                            if(writer2!=writer):
+                                writer2.write(message.encode('utf-8'))
+                                await writer.drain()
+                        
+                        message_data=json.loads(data.decode('utf-8'))
+                        self.p2p_message_ip=message_data.get("ip")
+                        self.p2p_message_port=message_data.get("message_ports")
+                        continue
+                elif(message.get("message")=="new mode message start"):
+                    writer.write(data)
+                    await writer.drain()
+                elif(message.get("message")=='change CS'):
+                    self.mode='Client-Server'
+                    self.p2p_message_ip=None
+                    self.p2p_message_ip=None
+
+                
                 # 处理完消息后，广播给其他客户端
-                await self.broadcast_message(message, writer)
+                await self.broadcast_message(data.decode(), writer)
 
         except Exception as e:
             print(f"[Error]: Failed to handle message. Error: {e}")
@@ -60,33 +107,50 @@ class ConferenceServer:
             await writer.wait_closed()
 
     async def handle_video(self,reader,writer):
+        self.video_client_conns.append((reader,writer))
+
+        # if(len(self.video_client_conns)==3 and self.mode=='p2p'):
+        #     address_length=0
+        #     total_length =  4 + 4 + address_length
+        #     #4byte 地址长度 + 4byte 数据帧长度 + 地址
+        #     address_length_bytes=address_length.to_bytes(4,'big')
+        #     total_length_bytes = total_length.to_bytes(4, 'big')
+        #     frame_length_bytes=(0).to_bytes(4,'big')
+
+        #     packet=total_length_bytes + address_length_bytes +frame_length_bytes
+
+        #     await self.broadcast_video(packet,writer)
+
         client_addr = writer.get_extra_info('peername')
+        print(f"Client-{client_addr}")
         window_name = f"Client-{client_addr}"
         try:
             total_chunks=0
             received_chunks={}
             while True:
                 length_data = await reader.readexactly(4)
-                frame_length = int.from_bytes(length_data, 'big')
+                receive_len = int.from_bytes(length_data, 'big')
 
-                print(f"[{window_name}] Expected frame length: {frame_length}")
+                print(f"[{window_name}] Expected frame length: {receive_len}")
 
 
-                if frame_length==0:
-                    print(f"[{window_name}]: Received stop signal. Closing display.")
-                    cv2.destroyWindow(window_name)
-                    continue
+                # if frame_length==0:
+                #     print(f"[{window_name}]: Received stop signal. Closing display.")
+                #     cv2.destroyWindow(window_name)
+                #     continue
 
                 # 确保读取到完整的帧数据
-                data = await reader.readexactly(frame_length)
-                frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
+                data = await reader.readexactly(receive_len)
+                packet=length_data+data
+                await self.broadcast_video(packet,writer)
+                # frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8),cv2.IMREAD_COLOR)
                 
-                if frame is None:
-                    print(f"[{window_name}]: Failed to decode frame.")
-                    continue
+                # if frame is None:
+                #     print(f"[{window_name}]: Failed to decode frame.")
+                #     continue
+                # cv2.imshow(window_name, frame)
+                # cv2.waitKey(1)
 
-                cv2.imshow(window_name, frame)
-                cv2.waitKey(1)
 
                 #await self.broadcast_video(frame, sock)
         except asyncio.IncompleteReadError:
@@ -111,6 +175,7 @@ class ConferenceServer:
         """
         广播文本消息给所有客户端，除了发送者
         """
+        print('in broad',len(self.client_conns))
         for reader,writer in self.client_conns:
             if writer != sock:
                 try:
@@ -119,18 +184,38 @@ class ConferenceServer:
                 except Exception as e:
                     print(f"[Error]: Failed to send message to client: {e}")
     
-    async def broadcast_video(self, frame, sock):
+    async def broadcast_video(self, packet, sock):
 
         # 遍历所有客户端连接
-        for port in self.data_serve_ports:
-            if port != sock.sockets[0].getsockname()[1]:
+        if(self.mode!='p2p'):
+            for reader,writer in self.video_client_conns:
                 try:
-                    # 压缩视频帧并发送
-                    compressed_frame = compress_image(frame, format='JPEG', quality=85)
-                    sock.sendto(compressed_frame,self.conf_serve_ip)
+                    writer.write(packet)
+                    await writer.drain()
                 except Exception as e:
-                    print(f"[Error]: Failed to send frame to client: {e}")
-            
+                    print(f"[Error]: Failed to send video to client: {e}")
+        else:
+            for reader,writer in self.video_client_conns:
+                if(writer!=sock):
+                    try:
+                        writer.write(packet)
+                        await writer.drain()
+                    except Exception as e:
+                        print(f"[Error]: Failed to send video to client: {e}")
+
+    async def quit_p2p(self,request_data):
+        
+        reader,writer=await asyncio.open_connection(self.p2p_message_ip,self.p2p_message_port)
+        print('step 2')
+        writer.write(request_data.encode('utf-8'))
+        print('step 3')
+        await writer.drain()
+        print('step 4')
+        # print('shuahsu')
+        
+        writer.close()
+        await writer.wait_closed()
+
                 
 
     async def handle_client(self, reader, writer):
@@ -142,7 +227,18 @@ class ConferenceServer:
 
         # 添加客户端连接到会议
         self.client_conns.append((reader,writer))
+        print(len(self.client_conns) , self.mode,'at the first time')
 
+        if(len(self.client_conns)!=2 and self.mode == 'p2p'):
+            request_data={
+                "sender":self.conference_id,
+                "message":"p2p only for 2 clients change to cs"
+            }
+            print('why')
+            request_data=json.dumps(request_data)
+            await self.quit_p2p(request_data)
+            # self.mode='Client-Server'
+            print('did it ?')
         try:
             # 为不同的数据类型创建异步任务来处理
             message_task = asyncio.create_task(self.handle_message(reader, writer))
@@ -160,7 +256,8 @@ class ConferenceServer:
         finally:
             # 客户端断开时移除连接
             print(f"[ConferenceServer]: Client disconnected from {addr}")
-            self.client_conns.remove((reader,writer))
+            if((reader,writer) in self.client_conns):
+                self.client_conns.remove((reader,writer))
             writer.close()
             await writer.wait_closed()
         
@@ -178,10 +275,6 @@ class ConferenceServer:
             print('Something about server status')
             await asyncio.sleep(LOG_INTERVAL)
 
-    async def cancel_conference(self):
-        """
-        handle cancel conference request: disconnect all connections to cancel the conference
-        """
 
     async def start(self):
         '''
@@ -213,6 +306,28 @@ class ConferenceServer:
                 await self.conference_server.serve_forever() 
                     
         await start_server()
+    
+    async def cancel_conference(self):
+        print('len of',len(self.client_conns))
+        for reader,writer in self.client_conns:
+            try:
+                response={
+                "sender": "conf_server",
+                "message": "conf close",
+            }
+                writer.write(json.dumps(response).encode('utf-8'))
+                await writer.drain()
+            except Exception as e:
+                print(f"[Error]: Failed to send message to client: {e}")
+        for _,(reader,writer) in enumerate(self.client_conns):
+            writer.close()
+            await writer.wait_closed()
+        for _,(reader,writer) in enumerate(self.video_client_conns):
+            writer.close()
+            await writer.wait_closed()
+        self.client_conns={}
+        self.video_client_conns={}
+
       
 
     async def wait_for_port_assignment(self):
@@ -222,13 +337,7 @@ class ConferenceServer:
         while self.conf_serve_ports  is None:
             await asyncio.sleep(0.1)  # 等待端口分配，避免过多占用 CPU 时间
     
-    def switch_p2p(self):
-        if(len(self.client_conns)!=2):
-            print("Cannot create P2P with clients more than 2")
-            return
-        
-        self.mode='p2p'
-        pass
+
 
 #udp 处理视频
 class EchoUDPProtocol(asyncio.DatagramProtocol):
@@ -314,7 +423,6 @@ class MainServer:
             new_conference_server.conference_id = conference_id
             self.conference_servers[conference_id] = new_conference_server
             asyncio.create_task(new_conference_server.start())
-            print('here')
 
 
             await new_conference_server.wait_for_port_assignment()
@@ -398,6 +506,16 @@ class MainServer:
         try:
             # 检查会议是否存在
             if conference_id in self.conference_servers:
+                reader,writer=self.conference_servers[conference_id].client_conns
+                writer.close()
+                await writer.wait_closed()
+
+                reader,writer=self.conference_servers[conference_id].video_client_conns
+                writer.close()
+                await writer.wait_closed()
+
+                self.conference_servers[conference_id].client_conns.remove()
+                self.conference_servers[conference_id].video_client_conns.remove()
                 # 构造响应数据
                 response_data = {
                     "status": "success",
@@ -431,7 +549,8 @@ class MainServer:
             if conference_id in self.conference_servers:
                 conference_server = self.conference_servers[conference_id]
                 
-                conference_server.cancel_conference() #这里关闭自定义的conf_server
+                
+                await conference_server.cancel_conference() #这里关闭自定义的conf_server
                 
                 del self.conference_servers[conference_id]
                 
