@@ -33,7 +33,7 @@ class ConferenceApp:
         self.client.username = self.username
 
         # self.master.withdraw()  # 隐藏主窗口
-        self.hello_label = tk.Label(master, text=f"Hello {self.username}!", font=('Times New Roman', 14))
+        self.hello_label = tk.Label(master, text=f"Hello {self.username} !", font=('Times New Roman', 14))
         self.hello_label.pack(anchor='n', padx=10, pady=10)
 
         # 创建会议按钮
@@ -159,11 +159,12 @@ class ConferenceApp:
         # self.video_button = tk.Button(control_frame, text="Turn On Screen Sharing", command=self.turn_on_video,bg=ON_COLOR)
         # self.video_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
 
-        self.leave_button = tk.Button(control_frame, text="Leave Meeting", command=self.leave_meeting,bg=OFF_COLOR)
-        self.leave_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
-
-        self.cancel_button = tk.Button(control_frame, text="Cancel Meeting", command=self.cancel_meeting)
-        self.cancel_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
+        if self.client.is_owner:
+            self.cancel_button = tk.Button(control_frame, text="Cancel Meeting", command=self.cancel_meeting)
+            self.cancel_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
+        else:
+            self.leave_button = tk.Button(control_frame, text="Leave Meeting", command=self.leave_meeting,bg=OFF_COLOR)
+            self.leave_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)
 
         self.switch_button = tk.Button(control_frame, text="Switch P2P", command=self.switch_mode)
         self.switch_button.pack(side=tk.TOP, padx=10, pady=5, fill=tk.X)

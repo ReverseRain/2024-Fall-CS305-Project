@@ -9,13 +9,17 @@ import struct
 import wave
 
 class ConferenceServer:
-    def __init__(self, ip):
+    def __init__(self, ip,conference_id,video_base_port=9001, audio_base_port=9002):
         # async server
         self.conference_server = None
-        self.conference_id = None  # conference_id for distinguish difference conference
+        self.conference_id = conference_id  # conference_id for distinguish difference conference
         self.conf_serve_ip = ip
         self.conf_serve_ports = None
-        self.data_serve_ports = {'video':9001, 'audio':9002}
+        # self.data_serve_ports = {'video':9001, 'audio':9002}
+        self.data_serve_ports = {
+            'video': video_base_port + int(self.conference_id) % 100,  # 确保端口号的唯一性
+            'audio': audio_base_port + int(self.conference_id) % 100
+        }
         self.data_types = ['screen', 'camera', 'audio']  # example data types in a video conference
         self.clients_info = None
         self.client_conns = []  # 维护所有在会议中的client
@@ -464,8 +468,8 @@ class MainServer:
             print(f"[Info]: Creating a new conference with ID: {conference_id}")
 
             # 初始化会议服务器
-            new_conference_server = ConferenceServer(self.server_ip)
-            new_conference_server.conference_id = conference_id
+            new_conference_server = ConferenceServer(self.server_ip,conference_id)
+            # new_conference_server.conference_id = conference_id
             self.conference_servers[conference_id] = new_conference_server
             asyncio.create_task(new_conference_server.start())
 
