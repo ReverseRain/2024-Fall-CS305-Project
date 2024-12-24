@@ -257,8 +257,7 @@ class ConferenceServer:
             self.data_serve_ports['video'] = self.video_server.sockets[0].getsockname()[1]
             self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
 
-            self.audio_server = await asyncio.start_server(self.handle_audio, self.conf_serve_ip, 0)
-            self.data_serve_ports['audio'] = self.audio_server.sockets[0].getsockname()[1]
+            
 
             print(f"[ConferenceServer]: Starting main server at {self.conf_serve_ip}:{self.conf_serve_ports}")
             print(f"[ConferenceServer]: Starting video server at {self.conf_serve_ip}:{self.data_serve_ports['video']}")
