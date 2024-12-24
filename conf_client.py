@@ -33,6 +33,7 @@ class ConferenceClient:
 
         self.p2p_message_server = None
         self.p2p_video_server = None
+        self.p2p_audio_server = None
         self.cs_conns = {}
         self.p2p_conns = {}
 
@@ -484,7 +485,7 @@ class ConferenceClient:
         if streamout.is_stopped():
             streamout.start_stream()
         wf.writeframes(data)
-        streamout.write(data)
+        # streamout.write(data)
         print("write data")
 
     async def send_quit(self):
@@ -499,6 +500,7 @@ class ConferenceClient:
 
         # 关闭连接
         transport.close()
+        del self.cs_conns['audio']
     async def send_video(self, reader=None, writer=None):
         if not self.on_meeting:
             self.show_info("[Error]: You are not in a conference.")
@@ -714,6 +716,8 @@ class ConferenceClient:
         self.conns['video'] = self.p2p_conns['video']
         await self.send_video(self.cs_conns['video'][0], self.cs_conns['video'][1])
 
+
+
     async def switch_p2p_server(self):
         # self.conf_server_addr['message'] = (
         #         self.conference_info['conference_ip'], self.conference_info['conference_message_port'])
@@ -734,6 +738,7 @@ class ConferenceClient:
 
             audio_ports=self.find_available_port()
             audio_ip=video_ip
+            self.p2p_audio_server= await self.setup_audio_server()
 
             request_data = {
                 "sender": self.username,
@@ -750,10 +755,12 @@ class ConferenceClient:
             # self.start_server_in_thread()
             # async with self.p2p_message_server:
             #     await  self.p2p_message_server.serve_forever()
+            await self.send_quit()
 
         else:
             self.is_p2p = False
             await self.send_message("change CS")
+            await self.send_quit()
             self.conns['message'] = self.cs_conns['message']
             self.conns['video'] = self.cs_conns['video']
             self.conns['audio'] = self.cs_conns['audio']
@@ -790,6 +797,7 @@ class ConferenceClient:
                     lambda: AudioUDPClientProtocol(self),
                     remote_addr=(ip,audio_port)
                 )
+            await self.send_quit()
             self.conns['message'] = self.p2p_conns['message']
             self.conns['video'] = self.p2p_conns['video']
             self.conns['audio'] = self.p2p_conns['audio']
@@ -799,14 +807,28 @@ class ConferenceClient:
             self.p2p_audio_server = None
 
             await self.send_video(self.cs_conns['video'][0], self.cs_conns['video'][1])
+            
         else:
             self.is_p2p = False
             await self.send_message("CS success")
+            await self.send_quit()
             self.conns['message'] = self.cs_conns['message']
             self.conns['video'] = self.cs_conns['video']
             self.conns['audio'] = self.cs_conns['audio']
             await self.send_video(self.p2p_conns['video'][0], self.p2p_conns['video'][1])
 
+    async def setup_audio_server(self):
+        """启动一个 UDP 服务器来处理音频数据"""
+        # 创建一个 UDP 端点并返回相关的 transport 和 protocol
+        loop = asyncio.get_event_loop()
+        listen = loop.create_datagram_endpoint(
+            lambda: AudioUDPServerP2PProtocol(self),
+            local_addr=(self.conf_serve_ip, self.data_serve_ports['audio'])
+        )
+        transport, protocol = await listen
+        print(f"[ConferenceServer]: Audio server started on {self.conf_serve_ip}:{self.data_serve_ports['audio']}")
+        return transport, protocol
+    
     def start(self):
         """
         execute functions based on the command line input
@@ -895,6 +917,39 @@ class AudioUDPClientProtocol(asyncio.DatagramProtocol):
     def connection_lost(self, exc):
         print("[Audio] UDP connection lost.")
 
+class AudioUDPServerP2PProtocol(asyncio.DatagramProtocol):
+    """处理UDP音频数据的协议"""
+
+    def __init__(self):
+        self.transport = None
+        self.wf = wave.open('server_output.wav', 'wb')
+        self.wf.setnchannels(1)  # 设置声道数
+        self.wf.setsampwidth(2)  # 设置样本宽度
+        self.wf.setframerate(44100)
+    def connection_made(self, transport):
+        """UDP 连接建立"""
+        self.transport = transport
+        print("[AudioUDPServerProtocol]: UDP connection established.")
+
+    async def datagram_received(self, data, addr):
+        try:
+            # 判断是否为字符串
+            message = data.decode('utf-8')  # 尝试将数据解码为 UTF-8 字符串
+            print(f"Received string: {message}")
+            if message == "quit":
+                self.transport.close()
+                await self.transport.wait_closed()
+        except UnicodeDecodeError:
+            # asyncio.create_task(self.p2p_audio(self.client_addr, self.wf ,data, addr))
+            asyncio.create_task(self.client.receive_audio_data(self.wf, data, addr))
+
+    def error_received(self, exc):
+        """处理接收错误"""
+        print(f"[AudioUDPServerProtocol]: Error received: {exc}")
+
+    def connection_lost(self, exc):
+        """UDP 连接丢失"""
+        print("[AudioUDPServerProtocol]: UDP connection lost.")
 
 
 
