@@ -3,7 +3,7 @@ import asyncio
 import json
 from config import *
 import struct
-import threading
+import wave
 
 
 
@@ -130,6 +130,9 @@ class ConferenceClient:
             # 接收服务器响应
             
             self.on_meeting = False
+            self.on_mic = False
+            self.on_cam = False
+            self.on_video = False
             self.show_info("[Success]: Successfully quit the conference.")
             
 
@@ -227,9 +230,11 @@ class ConferenceClient:
 
             while True:
                 reader, writer = self.conns['message']
-                # print('now recieve port',writer.get_extra_info('socket').getsockname()[1])
+                print('now recieve port',writer.get_extra_info('socket').getsockname()[1])
                 # 接收消息数据
+                print('mode',self.is_p2p)
                 response = await reader.read(1024)
+                print('?',response,'port is ',writer.get_extra_info('socket').getsockname()[1])
                 if not response:
                     break  # 如果没有接收到数据，退出接收
                 message_data = json.loads(response.decode('utf-8'))
@@ -291,6 +296,7 @@ class ConferenceClient:
 
         try:
             if 'message' not in self.cs_conns:
+                print('start new ??')
                 self.cs_conns['message']=await asyncio.open_connection(self.conf_server_addr['message'][0], self.conf_server_addr['message'][1])
                 
             self.conns['message'] = self.cs_conns['message']
@@ -303,12 +309,6 @@ class ConferenceClient:
         # )
         #         transport, protocol = await connect
         #         self.conns['video']=(transport,protocol)
-
-
-                
-            
-            
-            
 
             print(
                 f"[Info]: Connected to message server: {self.conf_server_addr['message']} and video server: {self.conf_server_addr['video']}")
@@ -352,6 +352,111 @@ class ConferenceClient:
             user_input = await self.async_input("[You]: ")
             if user_input.strip():  # 如果用户输入了内容
                 await self.send_message(user_input)
+    
+    async def send_audio(self):
+        # """从麦克风捕获音频并通过UDP发送到服务器"""
+        if not self.on_meeting:
+            self.show_info("[Error]: You are not in a conference.")
+            return
+
+        if not self.conns['audio']:
+            self.show_info("[Error]: Not connected to the server.")
+            return
+        self.on_mic = True
+
+        print("[ConferenceClient]: Starting to send audio data...")
+        try:
+            transport, protocol = self.conns['audio']
+            wf = wave.open('output.wav', 'wb')
+            wf.setnchannels(1)  # 设置声道数
+            wf.setsampwidth(2)  # 设置样本宽度
+            wf.setframerate(44100)  # 设置采样率
+                # 将音频数据写入文件
+            while self.on_mic:
+                if streamin.is_stopped():
+                    streamin.start_stream()
+                # 从麦克风读取音频数据
+                audio_data = capture_voice()
+                wf.writeframes(audio_data)
+                # 通过UDP发送音频数据
+                transport.sendto(audio_data)
+
+                await asyncio.sleep(0.005)  # 控制发送频率，适应音频的流畅性
+
+            # 停止音频流
+            if streamin.is_active():
+                streamin.stop_stream()
+
+        except Exception as e:
+            print(f"[ConferenceClient]: Error while sending audio: {e}")
+        finally:
+            print("[ConferenceClient]: Closing audio stream")
+            if streamin.is_active():
+                streamin.stop_stream()
+
+        # try:
+        #
+        #     reader, writer = self.conns['audio']
+        #     while self.on_mic:
+        #         if streamin.is_stopped():
+        #             streamin.start_stream()
+        #         # 从麦克风读取音频数据
+        #         audio_data =capture_voice()
+        #         # 发送音频数据到服务器
+        #         writer.write(audio_data)
+        #         await writer.drain()
+        #         #self.show_info(f"[Info]: sending audio len {len(audio_data)}")
+        #         await asyncio.sleep(0.005)
+        #     if streamin.is_active():
+        #         streamin.stop_stream()
+        #
+        #
+        # except Exception as e:
+        #     print(f"[ConferenceClient]: Error while sending audio: {e}")
+        # finally:
+        #     print("[ConferenceClient]: Closing audio stream")
+        #     if streamin.is_active():
+        #         streamin.stop_stream()
+        #
+
+    #这个方法其实没用到
+    async def receive_audio(self):
+        """接收来自其他客户端的音频数据并播放"""
+        if not self.on_meeting:
+            self.show_info("[Error]: You are not in a conference.")
+            return
+
+        if not self.conns['audio']:
+            self.show_info("[Error]: Not connected to the audio server.")
+            return
+
+        try:
+            transport, protocol = self.conns['audio']
+            self.show_info("[Info]: Listening for incoming audio frames.")
+            wf = wave.open('output_receive.wav', 'wb')
+            wf.setnchannels(1)  # 设置声道数
+            wf.setsampwidth(2)  # 设置样本宽度
+            wf.setframerate(44100)  # 设置采样率
+            if streamout.is_stopped():
+                streamout.start_stream()
+            while True:
+                # audio_data = await reader.readexactly(2048)
+                # # self.show_info(f"receive audio frames len {len(audio_data)}.")
+                # # 播放音频数据
+                # streamout.write(audio_data)
+                # wf.writeframes(audio_data)
+                await asyncio.sleep(0.01)  # 控制接收速率
+        except Exception as e:
+            self.show_info(f"[Error]: Failed to receive audio frame. Error: {e}")
+    async def receive_audio_data(self, wf, data, addr):
+        """处理从其他客户端接收到的音频数据"""
+        print(f"[Audio] Received data from {addr}: {data}")
+        # 处理音频数据（例如播放音频）
+        if streamout.is_stopped():
+            streamout.start_stream()
+        wf.writeframes(data)
+        streamout.write(data)
+        print("write data")
 
     async def send_video(self,reader=None,writer=None):
         if not self.on_meeting:
@@ -548,8 +653,10 @@ class ConferenceClient:
         reader,writer=self.conns['message']
 
     async def p2p_message(self,reader,writer):  
+        print('hhhhweuiwqnk')
         reader1,writer1=self.cs_conns['message']
         if('message' not in self.p2p_conns):
+            print('whyxjaiosiosaisaiasisio?')
             self.p2p_conns['message']=(reader,writer)
             self.conns['message']=self.p2p_conns['message']
             change_data={
@@ -563,6 +670,7 @@ class ConferenceClient:
             message_data = json.loads(response.decode('utf-8'))
             message = message_data.get("message")
             if(message=="p2p only for 2 clients change to cs"):
+                print('in here?')
                 await self.switch_p2p_server()
 
     async def p2p_video(self,reader,writer):  
@@ -648,6 +756,7 @@ class ConferenceClient:
             if 'video' not in self.p2p_conns:
                 self.p2p_conns['video']=await asyncio.open_connection(ip,video_port)
             if 'message' not in self.p2p_conns:
+                print(ip,message_port)
                 self.p2p_conns['message'] = await asyncio.open_connection(ip,message_port)
             self.conns['message'] = self.p2p_conns['message']
             self.conns['video'] = self.p2p_conns['video']
